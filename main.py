@@ -72,13 +72,20 @@ def get_client_ip():
 def handle_request(path):
     forwarded_url = request.headers.get(FORWARDED_URL, None)
 
+    if not forwarded_url:
+        logger.error('Missing %s header', FORWARDED_URL)
+        return f'Missing {FORWARDED_URL}'
+
     client_ip = get_client_ip()
 
     logger.info('client ip: %s', client_ip)
 
+    logger.info(
+        f'Incoming request: forwarded url: {forwarded_url}; method: {request.method}; headers: {request.headers}: cookies: {request.cookies}')
+
     # Shared secret check
     if app.config['SHARED_SECRET']:
-        if request.headers.getlist('X-Shared-Secret') != app.config['SHARED_SECRET']:
+        if request.headers.get('X-Shared-Secret', '') != app.config['SHARED_SECRET']:
             logger.info('Shared secret invalid')
             return 'Forbidden', 403
 
@@ -86,25 +93,18 @@ def handle_request(path):
     if not client_ip or not is_valid_ip(client_ip):
         logger.info('invalid client ip: %s', client_ip)
         auth = request.authorization
-        print('---------------')
-        print(request.authorization)
-        print('---------------')
+
         if not auth or not check_auth(auth.username, auth.password):
             logger.info('requiring basic auth')
             return authenticate()
 
-    if not forwarded_url:
-        logger.error('Missing %s header', FORWARDED_URL)
-        return f'Missing {FORWARDED_URL}'
-
-    logger.info(f'forwarded url: {forwarded_url}; method: {request.method}; headers: {request.headers}')
-
-    logger.info('incoming request')
-
     headers = {k: v for k,v in request.headers.items() if k not in ['Host', 'X-Cf-Forwarded-Url']}
-    response = requests.request(request.method, forwarded_url, headers=headers)
+    response = requests.request(request.method, forwarded_url, headers=headers, cookies=request.cookies)
 
     logger.info(
-        f'forwarding to url: {forwarded_url}; status: {response.status_code}; headers: {headers}')
+        f'Forwarding request to app: {forwarded_url}; method: {request.method}; headers: {headers}; cookies: {request.cookies}')
+
+    logger.info(
+        f'Response from app: status: {response.status_code}; headers: {response.headers}; cookies: {response.cookies}')
 
     return response.text, response.status_code, response.headers.items()
