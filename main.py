@@ -80,8 +80,7 @@ def handle_request(path):
 
     logger.info('client ip: %s', client_ip)
 
-    logger.info(
-        f'Incoming request: forwarded url: {forwarded_url}; method: {request.method}; headers: {request.headers}: cookies: {request.cookies}')
+    logger.info(f'Incoming request: forwarded url: {forwarded_url}; method: {request.method}; headers: {request.headers}: cookies: {request.cookies}')   # noqa
 
     # Shared secret check
     if app.config['SHARED_SECRET']:
@@ -96,9 +95,9 @@ def handle_request(path):
 
         if not auth or not check_auth(auth.username, auth.password):
             logger.info('requiring basic auth')
-            return authenticate()
+            return 'Forbidden', 403
 
-    headers = {k: v for k,v in request.headers.items() if k not in ['Host', 'X-Cf-Forwarded-Url']}
+    headers = {k: v for k, v in request.headers.items() if k not in ['Host', 'X-Cf-Forwarded-Url']}
 
     response = requests.request(
         request.method,
@@ -109,10 +108,8 @@ def handle_request(path):
         stream=True,
         data=request.get_data())
 
-    logger.info(
-        f'Forwarding request to app: {forwarded_url}; method: {request.method}; headers: {headers}; cookies: {request.cookies}')
+    logger.info(f'Forwarding request to app: {forwarded_url}; method: {request.method}; headers: {headers}; cookies: {request.cookies}')  # noqa
 
-    logger.info(
-        f'Response from app: status: {response.status_code}; headers: {response.headers}; cookies: {response.cookies}')
+    logger.info(f'Response from app: status: {response.status_code}; headers: {response.headers}; cookies: {response.cookies}')   # noqa
 
     return response.raw.read(), response.status_code, response.headers.items()
