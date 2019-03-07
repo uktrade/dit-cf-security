@@ -67,8 +67,8 @@ def get_client_ip():
         return None
 
 
-@app.route('/', defaults={'path': ''})
-@app.route('/<path:path>')
+@app.route('/', defaults={'path': ''}, methods=['POST', 'PUT', 'DELETE'])
+@app.route('/<path:path>', methods=['POST', 'PUT', 'DELETE'])
 def handle_request(path):
     forwarded_url = request.headers.get(FORWARDED_URL, None)
 
@@ -99,7 +99,7 @@ def handle_request(path):
             return authenticate()
 
     headers = {k: v for k,v in request.headers.items() if k not in ['Host', 'X-Cf-Forwarded-Url']}
-    response = requests.request(request.method, forwarded_url, headers=headers, cookies=request.cookies, stream=True)
+    response = requests.request(request.method, forwarded_url, allow_redirects=False, headers=headers, cookies=request.cookies, stream=True)
 
     logger.info(
         f'Forwarding request to app: {forwarded_url}; method: {request.method}; headers: {headers}; cookies: {request.cookies}')
