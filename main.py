@@ -99,7 +99,15 @@ def handle_request(path):
             return authenticate()
 
     headers = {k: v for k,v in request.headers.items() if k not in ['Host', 'X-Cf-Forwarded-Url']}
-    response = requests.request(request.method, forwarded_url, allow_redirects=False, headers=headers, cookies=request.cookies, stream=True)
+
+    response = requests.request(
+        request.method,
+        forwarded_url,
+        allow_redirects=False,
+        headers=headers,
+        cookies=request.cookies,
+        stream=True,
+        data=request.get_data())
 
     logger.info(
         f'Forwarding request to app: {forwarded_url}; method: {request.method}; headers: {headers}; cookies: {request.cookies}')
