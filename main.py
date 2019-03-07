@@ -67,8 +67,8 @@ def get_client_ip():
         return None
 
 
-@app.route('/', defaults={'path': ''}, methods=['POST', 'PUT', 'DELETE'])
-@app.route('/<path:path>', methods=['POST', 'PUT', 'DELETE'])
+@app.route('/', defaults={'path': ''}, methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTION', 'HEAD'])
+@app.route('/<path:path>', methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTION', 'HEAD'])
 def handle_request(path):
     forwarded_url = request.headers.get(FORWARDED_URL, None)
 
