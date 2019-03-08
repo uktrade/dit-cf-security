@@ -2,6 +2,7 @@ import os
 import sys
 import logging
 from ipaddress import ip_network, ip_address
+from urllib.parse import urlparse, urljoin
 
 import requests
 from flask import Flask, request, Response
@@ -108,8 +109,19 @@ def handle_request(path):
         stream=True,
         data=request.get_data())
 
+    response_headers = {**response.headers}
+
+    if response.status_code in [302, 301, 307, 308]:
+        location = response_headers.get('Location', None)
+
+        if location:
+            url_bits = urlparse(forwarded_url)
+            base_url = '{}://{}/'.format(url_bits.scheme, url_bits.hostname)
+
+            response_headers['Location'] = urljoin(base_url, location)
+
     logger.info(f'Forwarding request to app: {forwarded_url}; method: {request.method}; headers: {headers}; cookies: {request.cookies}')  # noqa
 
     logger.info(f'Response from app: status: {response.status_code}; headers: {response.headers}; cookies: {response.cookies}')   # noqa
 
-    return response.raw.read(), response.status_code, response.headers.items()
+    return response.raw.read(), response.status_code, response_headers.items()
