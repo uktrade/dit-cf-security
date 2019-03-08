@@ -114,7 +114,7 @@ def handle_request(path):
     if response.status_code in [302, 301, 307, 308]:
         location = response_headers.get('Location', None)
 
-        if location and not location.startswith('http://'):
+        if location and not location.startswith('http'):
             url_bits = urlparse(forwarded_url)
             base_url = '{}://{}/'.format(url_bits.scheme, url_bits.hostname)
 
