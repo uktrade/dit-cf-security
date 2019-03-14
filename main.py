@@ -6,6 +6,7 @@ from urllib.parse import urlparse, urljoin
 
 import requests
 from flask import Flask, request, Response
+from werkzeug.datastructures import Headers
 
 
 class FixedLocationResponse(Response):
@@ -67,6 +68,17 @@ def get_client_ip():
         return None
 
 
+def get_response_headers(response):
+    # multiple set-cookie headers in upstream `set-cookie` are comma separated
+    # that seems to confound the parsing logic of the browser. Solve by using
+    # multiple headers per cookie.
+    headers = Headers(response.headers.items())
+    headers.remove('set-cookie')
+    for name, value in response.cookies.items():
+        headers.add('set-cookie', f'{name}={value}')
+    return headers
+
+
 @app.route('/', defaults={'path': ''}, methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTION', 'HEAD'])
 @app.route('/<path:path>', methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTION', 'HEAD'])
 def handle_request(path):
@@ -112,4 +124,4 @@ def handle_request(path):
 
     logger.info(f'Response from app: status: {response.status_code}; headers: {response.headers}; cookies: {response.cookies}')   # noqa
 
-    return response.raw.read(), response.status_code, response.headers.items()
+    return response.raw.read(), response.status_code, get_response_headers(response)
