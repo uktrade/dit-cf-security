@@ -54,6 +54,7 @@ def is_valid_ip(client_ip):
     return False
 
 
+
 def get_client_ip():
 
     try:
@@ -96,7 +97,7 @@ def handle_request(path):
             logger.info('requiring basic auth')
             return 'Forbidden', 403
 
-    headers = {k: v for k, v in request.headers.items() if k not in ['Host', 'X-Cf-Forwarded-Url']}
+    headers = {k: v for k, v in request.headers.items() if k not in ['Host', 'X-Cf-Forwarded-Url', 'Authorization']}
 
     response = requests.request(
         request.method,

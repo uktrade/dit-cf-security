@@ -18,5 +18,5 @@ Bind to your application
 
 ## TODOS
 
-Refactor: remove flask and requests and build either an asyncio app or wsgi+urllib3
-Add some tests
+Refactor: remove flask and requests and build either an asyncio app or wsgi+urllib3 
+Add some tests 
