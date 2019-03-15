@@ -5,8 +5,7 @@ from ipaddress import ip_network, ip_address
 from urllib.parse import urlparse, urljoin
 
 import requests
-from flask import Flask, request, Response
-from werkzeug.datastructures import Headers
+from flask import Flask, request, Response, make_response
 
 
 class FixedLocationResponse(Response):
@@ -68,17 +67,6 @@ def get_client_ip():
         return None
 
 
-def get_response_headers(response):
-    # multiple set-cookie headers in upstream `set-cookie` are comma separated
-    # that seems to confound the parsing logic of the browser. Solve by using
-    # multiple headers per cookie.
-    headers = Headers(response.headers.items())
-    headers.remove('set-cookie')
-    for name, value in response.cookies.items():
-        headers.add('set-cookie', f'{name}={value}')
-    return headers
-
-
 @app.route('/', defaults={'path': ''}, methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTION', 'HEAD'])
 @app.route('/<path:path>', methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTION', 'HEAD'])
 def handle_request(path):
@@ -111,7 +99,7 @@ def handle_request(path):
 
     headers = {k: v for k, v in request.headers.items() if k not in ['Host', 'X-Cf-Forwarded-Url', 'Authorization']}
 
-    response = requests.request(
+    origin_response = requests.request(
         request.method,
         forwarded_url,
         allow_redirects=False,
@@ -122,6 +110,20 @@ def handle_request(path):
 
     logger.info(f'Forwarding request to app: {forwarded_url}; method: {request.method}; headers: {headers}; cookies: {request.cookies}')  # noqa
 
-    logger.info(f'Response from app: status: {response.status_code}; headers: {response.headers}; cookies: {response.cookies}')   # noqa
+    logger.info(f'Response from app: status: {origin_response.status_code}; headers: {origin_response.headers}; cookies: {origin_response.cookies}')   # noqa
 
-    return response.raw.read(), response.status_code, get_response_headers(response)
+    headers = origin_response.headers.copy()
+    if 'Set-Cookie' in headers:
+        del headers['Set-Cookie']
+
+    response = make_response(origin_response.raw.read(), origin_response.status_code, headers.items())
+
+    for cookie in origin_response.cookies:
+        response.set_cookie(cookie.name,
+                            cookie.value,
+                            expires=cookie.expires,
+                            path=cookie.path,
+                            secure=cookie.secure,
+                            httponly=cookie.get_nonstandard_attr('HttpOnly'))
+
+    return response
