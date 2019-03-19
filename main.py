@@ -97,7 +97,7 @@ def handle_request(path):
             logger.info('requiring basic auth')
             return 'Forbidden', 403
 
-    headers = {k: v for k, v in request.headers.items() if k not in ['Host', 'X-Cf-Forwarded-Url', 'Authorization']}
+    headers = {k: v for k, v in request.headers.items() if k not in ['Host', 'X-Cf-Forwarded-Url']}
 
     origin_response = requests.request(
         request.method,
