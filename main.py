@@ -33,6 +33,14 @@ PROXY_METADATA = 'X-CF-Proxy-Metadata'
 PROXY_SIGNATURE = 'X-CF-Proxy-Signature'
 
 
+def authenticate():
+    """Sends a 401 response that enables basic auth"""
+    return Response(
+    'Could not verify your access level for that URL.\n'
+    'You have to login with proper credentials', 401,
+    {'WWW-Authenticate': 'Basic realm="Login Required"'})
+
+
 def check_auth(username, password):
     return username == app.config['BASIC_AUTH_USERNAME'] and password == app.config['BASIC_AUTH_PASSWORD']
 
@@ -95,7 +103,7 @@ def handle_request(path):
 
         if not auth or not check_auth(auth.username, auth.password):
             logger.info('requiring basic auth')
-            return 'Forbidden', 403
+            return authenticate()
 
     headers = {k: v for k, v in request.headers.items() if k not in ['Host', 'X-Cf-Forwarded-Url']}
 
