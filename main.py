@@ -5,7 +5,7 @@ from ipaddress import ip_network, ip_address
 from urllib.parse import urlparse, urljoin
 
 import requests
-from flask import Flask, request, Response, make_response
+from flask import Flask, request, Response, make_response, render_template
 
 
 class FixedLocationResponse(Response):
@@ -26,19 +26,10 @@ app.config['ALLOWED_IP_RANGES'] = os.environ.get('ALLOWED_IP_RANGES', '').split(
 app.config['BASIC_AUTH_USERNAME'] = os.environ.get('BASIC_AUTH_USERNAME')
 app.config['BASIC_AUTH_PASSWORD'] = os.environ.get('BASIC_AUTH_PASSWORD')
 app.config['SHARED_SECRET'] = os.environ.get('SHARED_SECRET', '')
+app.config['EMAIL'] = os.environ.get('EMAIL', 'unspecified')
 
 
 FORWARDED_URL = 'X-CF-Forwarded-Url'
-PROXY_METADATA = 'X-CF-Proxy-Metadata'
-PROXY_SIGNATURE = 'X-CF-Proxy-Signature'
-
-
-def authenticate():
-    """Sends a 401 response that enables basic auth"""
-    return Response(
-    'Could not verify your access level for that URL.\n'
-    'You have to login with proper credentials', 401,
-    {'WWW-Authenticate': 'Basic realm="Login Required"'})
 
 
 def check_auth(username, password):
@@ -75,6 +66,11 @@ def get_client_ip():
         return None
 
 
+def render_access_denied(client_ip):
+    return render_template('access-denied.html', client_ip=client_ip, email=app.config['EMAIL'])
+
+
+
 @app.route('/', defaults={'path': ''}, methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTION', 'HEAD'])
 @app.route('/<path:path>', methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTION', 'HEAD'])
 def handle_request(path):
@@ -103,7 +99,7 @@ def handle_request(path):
 
         if not auth or not check_auth(auth.username, auth.password):
             logger.info('requiring basic auth')
-            return authenticate()
+            return render_access_denied(client_ip)
 
     headers = {k: v for k, v in request.headers.items() if k not in ['Host', 'X-Cf-Forwarded-Url']}
 
