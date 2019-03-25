@@ -70,6 +70,18 @@ def render_access_denied(client_ip):
     return render_template('access-denied.html', client_ip=client_ip, email=app.config['EMAIL'])
 
 
+def basic_auth_check():
+    auth = request.authorization
+
+    if not auth or not check_auth(auth.username, auth.password):
+        logger.info('requiring basic auth')
+        return Response(
+            'Could not verify your access level for that URL.\n'
+            'You have to login with proper credentials', 401,
+            {'WWW-Authenticate': 'Basic realm="Login Required"'})
+
+    return 'ok'
+
 
 @app.route('/', defaults={'path': ''}, methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTION', 'HEAD'])
 @app.route('/<path:path>', methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTION', 'HEAD'])
@@ -79,6 +91,10 @@ def handle_request(path):
     if not forwarded_url:
         logger.error('Missing %s header', FORWARDED_URL)
         return f'Missing {FORWARDED_URL}'
+
+    if forwarded_url.endswith('/automated-test-auth'):
+        # apply basic auth with 401/Www-Authenticate header to this URL only
+        return basic_auth_check()
 
     client_ip = get_client_ip()
 
