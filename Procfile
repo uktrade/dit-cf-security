@@ -1,1 +1,1 @@
-web: FLASK_APP=main.py FLASK_RUN_PORT=$PORT flask run --host=0.0.0.0
+web: gunicorn main:app -w 4 -b 0.0.0.0:$PORT
