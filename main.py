@@ -16,10 +16,6 @@ app = Flask(__name__)
 app.response_class = FixedLocationResponse
 
 
-logging.basicConfig(stream=sys.stdout, level='INFO')
-logger = logging.getLogger(__name__)
-
-
 app.config['XFF_IP_INDEX'] = int(os.environ.get('IP_SAFELIST_XFF_IP_INDEX', '-3'))
 app.config['ALLOWED_IPS'] = os.environ.get('ALLOWED_IPS', '').split(',')
 app.config['ALLOWED_IP_RANGES'] = os.environ.get('ALLOWED_IP_RANGES', '').split(',')
@@ -27,6 +23,10 @@ app.config['BASIC_AUTH_USERNAME'] = os.environ.get('BASIC_AUTH_USERNAME')
 app.config['BASIC_AUTH_PASSWORD'] = os.environ.get('BASIC_AUTH_PASSWORD')
 app.config['SHARED_SECRET'] = os.environ.get('SHARED_SECRET', '')
 app.config['EMAIL'] = os.environ.get('EMAIL', 'unspecified')
+app.config['LOG_LEVEL'] = os.environ.get('LOG_LEVEL', 'INFO')
+
+logging.basicConfig(stream=sys.stdout, level=app.config['LOG_LEVEL'])
+logger = logging.getLogger(__name__)
 
 
 FORWARDED_URL = 'X-CF-Forwarded-Url'
@@ -59,7 +59,7 @@ def get_client_ip():
     try:
         return request.headers.get("X-Forwarded-For").split(',')[app.config['XFF_IP_INDEX']].strip()
     except (IndexError, KeyError):
-        logger.warning(
+        logger.debug(
             'X-Forwarded-For header is missing or does not '
             'contain enough elements to determine the '
             'client\'s ip')
@@ -74,7 +74,7 @@ def basic_auth_check():
     auth = request.authorization
 
     if not auth or not check_auth(auth.username, auth.password):
-        logger.info('requiring basic auth')
+        logger.debug('requiring basic auth')
         return Response(
             'Could not verify your access level for that URL.\n'
             'You have to login with proper credentials', 401,
@@ -98,23 +98,23 @@ def handle_request(path):
 
     client_ip = get_client_ip()
 
-    logger.info('client ip: %s', client_ip)
+    logger.debug('client ip: %s', client_ip)
 
-    logger.info(f'Incoming request: forwarded url: {forwarded_url}; method: {request.method}; headers: {request.headers}: cookies: {request.cookies}')   # noqa
+    logger.debug(f'Incoming request: forwarded url: {forwarded_url}; method: {request.method}; headers: {request.headers}: cookies: {request.cookies}')   # noqa
 
     # Shared secret check
     if app.config['SHARED_SECRET']:
         if request.headers.get('X-Shared-Secret', '') != app.config['SHARED_SECRET']:
-            logger.info('Shared secret invalid')
+            logger.debug('Shared secret invalid')
             return 'Forbidden', 403
 
     # IP and basic auth
     if not client_ip or not is_valid_ip(client_ip):
-        logger.info('invalid client ip: %s', client_ip)
+        logger.debug('invalid client ip: %s', client_ip)
         auth = request.authorization
 
         if not auth or not check_auth(auth.username, auth.password):
-            logger.info('requiring basic auth')
+            logger.debug('requiring basic auth')
             return render_access_denied(client_ip)
 
     headers = {k: v for k, v in request.headers.items() if k not in ['Host', 'X-Cf-Forwarded-Url']}
@@ -128,9 +128,9 @@ def handle_request(path):
         stream=True,
         data=request.get_data())
 
-    logger.info(f'Forwarding request to app: {forwarded_url}; method: {request.method}; headers: {headers}; cookies: {request.cookies}')  # noqa
+    logger.debug(f'Forwarding request to app: {forwarded_url}; method: {request.method}; headers: {headers}; cookies: {request.cookies}')  # noqa
 
-    logger.info(f'Response from app: status: {origin_response.status_code}; headers: {origin_response.headers}; cookies: {origin_response.cookies}')   # noqa
+    logger.debug(f'Response from app: status: {origin_response.status_code}; headers: {origin_response.headers}; cookies: {origin_response.cookies}')   # noqa
 
     headers = origin_response.headers.copy()
     if 'Set-Cookie' in headers:
