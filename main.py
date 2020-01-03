@@ -144,6 +144,6 @@ def handle_request(path):
                             expires=cookie.expires,
                             path=cookie.path,
                             secure=cookie.secure,
-                            httponly=cookie.get_nonstandard_attr('HttpOnly'))
+                            httponly=cookie.has_nonstandard_attr('HttpOnly'))
 
     return response
