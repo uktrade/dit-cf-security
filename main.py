@@ -132,18 +132,4 @@ def handle_request(path):
 
     logger.debug(f'Response from app: status: {origin_response.status_code}; headers: {origin_response.headers}; cookies: {origin_response.cookies}')   # noqa
 
-    headers = origin_response.headers.copy()
-    if 'Set-Cookie' in headers:
-        del headers['Set-Cookie']
-
-    response = make_response(origin_response.raw.read(), origin_response.status_code, headers.items())
-
-    for cookie in origin_response.cookies:
-        response.set_cookie(cookie.name,
-                            cookie.value,
-                            expires=cookie.expires,
-                            path=cookie.path,
-                            secure=cookie.secure,
-                            httponly=cookie.has_nonstandard_attr('HttpOnly'))
-
-    return response
+    return make_response(origin_response.raw.read(), origin_response.status_code, origin_response.headers.items())
