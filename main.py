@@ -66,11 +66,12 @@ def get_client_ip():
         return None
 
 
-def render_access_denied(client_ip):
+def render_access_denied(client_ip, forwarded_url):
     return (render_template(
         'access-denied.html',
         client_ip=client_ip,
         email=app.config['EMAIL'],
+        forwarded_url=forwarded_url,
     ), 403)
 
 
@@ -119,7 +120,7 @@ def handle_request(path):
 
         if not auth or not check_auth(auth.username, auth.password):
             logger.debug('requiring basic auth')
-            return render_access_denied(client_ip)
+            return render_access_denied(client_ip, forwarded_url)
 
     headers = {k: v for k, v in request.headers.items() if k not in ['Host', 'X-Cf-Forwarded-Url']}
 
