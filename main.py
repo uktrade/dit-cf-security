@@ -57,7 +57,7 @@ def is_valid_ip(client_ip):
 def get_client_ip():
 
     try:
-        return request.headers.get("X-Forwarded-For").split(',')[app.config['XFF_IP_INDEX']].strip()
+        return request.headers["X-Forwarded-For"].split(',')[app.config['XFF_IP_INDEX']].strip()
     except (IndexError, KeyError):
         logger.debug(
             'X-Forwarded-For header is missing or does not '
@@ -67,7 +67,11 @@ def get_client_ip():
 
 
 def render_access_denied(client_ip):
-    return render_template('access-denied.html', client_ip=client_ip, email=app.config['EMAIL'])
+    return (render_template(
+        'access-denied.html',
+        client_ip=client_ip,
+        email=app.config['EMAIL'],
+    ), 403)
 
 
 def basic_auth_check():

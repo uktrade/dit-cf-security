@@ -1,4 +1,4 @@
-# dit-cf-security
+# dit-cf-security [![CircleCI](https://circleci.com/gh/uktrade/dit-cf-security.svg?style=svg)](https://circleci.com/gh/uktrade/dit-cf-security)
 
 An ip filtering route service POC that provides a basic auth bypass for automated testing tools.  This is designed to be used only in non production environments.
 
