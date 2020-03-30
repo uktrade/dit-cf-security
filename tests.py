@@ -376,24 +376,25 @@ class TestCfSecurity(unittest.TestCase):
                 time.sleep(1)
 
         # Testing non-chunked streaming requests
-        session = requests.Session()
-        request = requests.Request(
-            'POST',
-            'http://127.0.0.1:8080/',
-            headers={
-                'x-cf-forwarded-url': 'http://127.0.0.1:8081/',
-                'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
-                'x-echo-response-status': '201',
-            },
-            data=data(),
-        )
-        prepared_request = session.prepare_request(request)
-        del prepared_request.headers['transfer-encoding']
-        prepared_request.headers['content-length'] = str(num_bytes)
+        with requests.Session() as session:
+            request = requests.Request(
+                'POST',
+                'http://127.0.0.1:8080/',
+                headers={
+                    'x-cf-forwarded-url': 'http://127.0.0.1:8081/',
+                    'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
+                    'x-echo-response-status': '201',
+                },
+                data=data(),
+            )
+            prepared_request = session.prepare_request(request)
+            del prepared_request.headers['transfer-encoding']
+            prepared_request.headers['content-length'] = str(num_bytes)
 
-        # This documents an issue to be fixed
-        with self.assertRaises(requests.exceptions.ConnectionError):
-            session.send(prepared_request)
+            # This documents an issue to be fixed
+            with self.assertRaises(requests.exceptions.ConnectionError):
+                with session.send(prepared_request) as response:
+                    pass
 
     def test_chunked_response(self):
         self.addCleanup(create_filter(8080))
