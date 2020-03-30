@@ -2,3 +2,6 @@
 parallel = True
 branch = True
 concurrency = multiprocessing
+include =
+	main.py
+	tests.py
