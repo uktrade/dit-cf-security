@@ -210,6 +210,17 @@ class TestCfSecurity(unittest.TestCase):
         ).headers['x-echo-header-cookie']
         self.assertEqual(response_header, 'my_name=my_value')
 
+        response_header = requests.request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-cf-forwarded-url': 'http://localtest.me:8081/',
+                'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
+                'cookie': 'my_name=my_value; my_name_b=my_other_value',
+            },
+        ).headers['x-echo-header-cookie']
+        self.assertEqual(response_header, 'my_name=my_value; my_name_b=my_other_value')
+
     def test_response_cookie_is_forwarded(self):
         self.addCleanup(create_filter(8080))
         self.addCleanup(create_origin(8081))
@@ -227,6 +238,38 @@ class TestCfSecurity(unittest.TestCase):
         ).headers['set-cookie']
         # This should probably pass through the set-cookie header unchanged
         self.assertEqual(response_header, 'my_name=my_value; Domain=localtest.me; Path=/')
+
+        # A full cookie with lots of components
+        full_cookie_value = \
+            'my_name=my_value; Domain=.localtest.me; ' \
+            'Expires=Wed, 29-Apr-2020 15:06:49 GMT; Secure; ' \
+            'HttpOnly; Path=/path'
+        response_header = requests.request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-cf-forwarded-url': 'http://subdomain.localtest.me:8081/path',
+                'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
+                'x-echo-response-header-set-cookie': full_cookie_value,
+            },
+        ).headers['set-cookie']
+        self.assertEqual(response_header, full_cookie_value)
+
+        # Checking the treatment of Max-Age
+        response_header = requests.request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-cf-forwarded-url': 'http://localtest.me:8081/path',
+                'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
+                'x-echo-response-header-set-cookie': 'my_name=my_value; Max-Age=100',
+            },
+        ).headers['set-cookie']
+        components = response_header.split('; ')
+        self.assertIn('my_name=my_value', components)
+        self.assertNotIn('Max-Age=100', components)       # This should probably be a component
+        self.assertIn('Domain=localtest.me', components)  # This should probably not be a component
+        self.assertIn('Path=/', components)               # This should probably not be a component
 
     def test_multiple_response_cookies_are_forwarded(self):
         self.addCleanup(create_filter(8080))
