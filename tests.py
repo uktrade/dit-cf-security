@@ -417,6 +417,24 @@ class TestCfSecurity(unittest.TestCase):
 
         self.assertEqual(response.content, b'-' * 10000)
 
+    def test_https(self):
+        self.addCleanup(create_filter(8080))
+        wait_until_connectable(8080)
+
+        # On the one hand not great to depend on a 3rd party/external site,
+        # but it does test that the filter can connect to a regular/real site
+        # that we cannot have customised to make the tests pass. Plus,
+        # www.google.com is extremely unlikely to go down
+        content = requests.request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-cf-forwarded-url': 'https://www.google.com/',
+                'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
+            },
+        ).content
+        self.assertIn(b'<title>Google</title>', content)
+
     def test_missing_x_forwarded_for_returns_403_and_origin_not_called(self):
         # Origin not running: if an attempt was made to connect to it, we
         # would get a 500
