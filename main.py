@@ -4,18 +4,10 @@ import logging
 from ipaddress import ip_network, ip_address
 from urllib.parse import urlparse, urljoin
 
-import requests
-from flask import Flask, request, Response, make_response, render_template
-
-
-class FixedLocationResponse(Response):
-    autocorrect_location_header = False
-
+from flask import Flask, request, Response, render_template
+import urllib3
 
 app = Flask(__name__)
-app.response_class = FixedLocationResponse
-
-
 app.config['XFF_IP_INDEX'] = int(os.environ.get('IP_SAFELIST_XFF_IP_INDEX', '-3'))
 app.config['ALLOWED_IPS'] = os.environ.get('ALLOWED_IPS', '').split(',')
 app.config['ALLOWED_IP_RANGES'] = os.environ.get('ALLOWED_IP_RANGES', '').split(',')
@@ -122,34 +114,35 @@ def handle_request(path):
             logger.debug('requiring basic auth')
             return render_access_denied(client_ip, forwarded_url)
 
-    headers = {k: v for k, v in request.headers.items() if k not in ['Host', 'X-Cf-Forwarded-Url']}
+    def downstream_data():
+        while True:
+            contents = request.stream.read(65536)
+            if not contents:
+                break
+            yield contents
 
-    origin_response = requests.request(
+    http = urllib3.PoolManager()
+    origin_response = http.request(
         request.method,
         forwarded_url,
-        allow_redirects=False,
-        headers=headers,
-        cookies=request.cookies,
-        stream=True,
-        data=request.get_data())
+        headers={
+            k: v for k, v in request.headers
+            if k not in ['Host', 'X-Cf-Forwarded-Url']
+        },
+        preload_content=False,
+        redirect=False,
+        body=downstream_data(),
+    )
 
-    logger.debug(f'Forwarding request to app: {forwarded_url}; method: {request.method}; headers: {headers}; cookies: {request.cookies}')  # noqa
+    logger.debug(f'Forwarding request to app: {forwarded_url}; method: {request.method}; headers: {origin_response.headers}')  # noqa
 
-    logger.debug(f'Response from app: status: {origin_response.status_code}; headers: {origin_response.headers}; cookies: {origin_response.cookies}')   # noqa
+    logger.debug(f'Response from app: status: {origin_response.status}; headers: {origin_response.headers}')   # noqa
 
-    headers = origin_response.headers.copy()
-    if 'Set-Cookie' in headers:
-        del headers['Set-Cookie']
-
-    response = make_response(origin_response.raw.read(), origin_response.status_code, headers.items())
-
-    for cookie in origin_response.cookies:
-        response.set_cookie(cookie.name,
-                            cookie.value,
-                            expires=cookie.expires,
-                            path=cookie.path,
-                            secure=cookie.secure,
-                            domain=cookie.domain,
-                            httponly=cookie.has_nonstandard_attr('HttpOnly'))
-
-    return response
+    downstream_response = Response(
+        origin_response.stream(65536, decode_content=False),
+        status=origin_response.status,
+        headers=origin_response.headers.items(),
+    )
+    downstream_response.autocorrect_location_header = False
+    downstream_response.call_on_close(origin_response.release_conn)
+    return downstream_response
