@@ -1,0 +1,4 @@
+-r requirements.in
+
+coverage==5.0.4
+requests==2.23.0

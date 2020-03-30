@@ -240,8 +240,7 @@ class TestCfSecurity(unittest.TestCase):
                 'x-echo-response-header-set-cookie': 'my_name=my_value',
             },
         ).headers['set-cookie']
-        # This should probably pass through the set-cookie header unchanged
-        self.assertEqual(response_header, 'my_name=my_value; Domain=localtest.me; Path=/')
+        self.assertEqual(response_header, 'my_name=my_value')
 
         # A full cookie with lots of components
         full_cookie_value = \
@@ -259,7 +258,8 @@ class TestCfSecurity(unittest.TestCase):
         ).headers['set-cookie']
         self.assertEqual(response_header, full_cookie_value)
 
-        # Checking the treatment of Max-Age
+        # Checking the treatment of Max-Age (which Python requests can change
+        # to Expires)
         response_header = requests.request(
             'GET',
             url='http://127.0.0.1:8080/',
@@ -269,11 +269,7 @@ class TestCfSecurity(unittest.TestCase):
                 'x-echo-response-header-set-cookie': 'my_name=my_value; Max-Age=100',
             },
         ).headers['set-cookie']
-        components = response_header.split('; ')
-        self.assertIn('my_name=my_value', components)
-        self.assertNotIn('Max-Age=100', components)       # This should probably be a component
-        self.assertIn('Domain=localtest.me', components)  # This should probably not be a component
-        self.assertIn('Path=/', components)               # This should probably not be a component
+        self.assertEqual(response_header, 'my_name=my_value; Max-Age=100')
 
     def test_multiple_response_cookies_are_forwarded(self):
         self.addCleanup(create_filter(8080))
@@ -300,10 +296,8 @@ class TestCfSecurity(unittest.TestCase):
             response += sock.recv(4096)
         sock.close()
 
-        # This should probably pass through the set-cookie headers unchanged,
-        # i.e. without domain and path
-        self.assertIn(b'Set-Cookie: name_a=value_a; Domain=localtest.me; Path=/\r\n', response)
-        self.assertIn(b'Set-Cookie: name_b=value_b; Domain=localtest.me; Path=/\r\n', response)
+        self.assertIn(b'set-cookie: name_a=value_a\r\n', response)
+        self.assertIn(b'set-cookie: name_b=value_b\r\n', response)
 
     def test_cookie_not_stored(self):
         self.addCleanup(create_filter(8080))
@@ -390,11 +384,9 @@ class TestCfSecurity(unittest.TestCase):
             prepared_request = session.prepare_request(request)
             del prepared_request.headers['transfer-encoding']
             prepared_request.headers['content-length'] = str(num_bytes)
-
-            # This documents an issue to be fixed
-            with self.assertRaises(requests.exceptions.ConnectionError):
-                with session.send(prepared_request) as response:
-                    pass
+            with session.send(prepared_request) as response:
+                content = response.content
+        self.assertEqual(content, b'-' * num_bytes)
 
     def test_chunked_response(self):
         self.addCleanup(create_filter(8080))
@@ -411,11 +403,8 @@ class TestCfSecurity(unittest.TestCase):
                 'x-chunked-num-bytes': '10000',
             },
         )
-        # This is an issue to be fixed: it the server sent chunked, then the
-        # client should receive chunked, and not a content-length
-        self.assertNotIn('transfer-encoding', response.headers)
-        self.assertEqual(response.headers['content-length'], '10000')
-
+        self.assertEqual('chunked', response.headers['Transfer-Encoding'])
+        self.assertNotIn('content-length', response.headers)
         self.assertEqual(response.content, b'-' * 10000)
 
     def test_https(self):
