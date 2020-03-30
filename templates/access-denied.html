@@ -1,28 +1,201 @@
 <!doctype html>
-
 <html lang="en">
-<head>
+<head class="govuk-template">
   <meta charset="utf-8">
-
-  <title>Access denied</title>
-
-  <style type="text/css">
-      body {
-          font-family: "Open Sans", "Helvetica Neue", Helvetica, Arial, sans-serif
+  <title>You are not allowed to access this page</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <style>
+    /* Minimal set of GDS-inspired styles and class names */
+    .govuk-template {
+      overflow-y: scroll;
+      text-size-adjust: 100%;
+    }
+    .govuk-template__body {
+      margin: 0;
+      background-color: #ffffff;
+    }
+    .govuk-width-container {
+      display: block;
+      max-width: 960px;
+      margin: 0 15px;
+    }
+    @media (min-width: 40.0625em) {
+      .govuk-width-container {
+        margin: 0 30px; 
       }
+    }
+    @supports (margin: max(calc(0px))) {
+      .govuk-width-container {
+        margin-right: max(15px, calc(15px + env(safe-area-inset-right)));
+        margin-left: max(15px, calc(15px + env(safe-area-inset-left)));
+      }
+      @media (min-width: 40.0625em) {
+        .govuk-width-container {
+          margin-right: max(30px, calc(15px + env(safe-area-inset-right)));
+          margin-left: max(30px, calc(15px + env(safe-area-inset-left)));
+        }
+      }
+    }
+    @media (min-width: 1020px) {
+      .govuk-width-container {
+        margin: 0 auto;
+      }
+    }
+    .govuk-main-wrapper {
+      padding-top: 20px;
+      padding-bottom: 20px;
+    }
+    @media (min-width: 40.0625em) {
+      .govuk-main-wrapper {
+        padding-top: 40px;
+        padding-bottom: 40px;
+      }
+    }
+    .govuk-header {
+      display: block;
+      background: #0b0c0c;
+      border-bottom: 10px solid #ffffff;
+    }
+    .govuk-header__container {
+      display: block;
+      padding-top: 20px; /* GDS is 10px */
+      border-bottom: 10px solid #1d70b8;
+      margin-bottom: -10px;
+    }
+    @media (min-width: 40.0625em) {
+      .govuk-header__container {
+        padding-top: 30px;
+      }
+    }
+    .govuk-grid-row {
+      margin-right: -15px;
+      margin-left: -15px;
+    }
+    .govuk-grid-column-two-thirds {
+      box-sizing: border-box;
+      width: 100%;
+      padding: 0 15px;
+    }
+    @media (min-width: 40.0625em) {
+      .govuk-grid-column-two-thirds {
+        width: 66.6666%;
+        float: left;
+      }
+    }
+    .govuk-heading-xl,
+    .govuk-body,
+    .govuk-summary-list {
+      font-family: "Helvetica Neue", Helvetica, "Open Sans", Arial, sans-serif;
+      color: #0b0c0c;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    .govuk-heading-xl {
+      display: block;
+      font-weight: 700;
+      margin-top: 0;
+      margin-bottom: 30px;
+    }
+    @media (min-width: 40.0625em) {
+      .govuk-heading-xl {
+        font-size: 48px;
+        font-size: 3rem;
+        line-height: 1.04167;
+        margin-bottom: 50px;
+      }
+    }
+    .govuk-body {
+      font-weight: 400;
+      font-size: 16px;
+      font-size: 1rem;
+      line-height: 1.25;
+      display: block;
+      margin-top: 0;
+      margin-bottom: 15px;
+    }
+    @media (min-width: 40.0625em) {
+      .govuk-body {
+        font-size: 19px;
+        font-size: 1.1875rem;
+        line-height: 1.31579;
+        margin-bottom: 20px;
+      }
+    }
+    /* Styled identically if visited */
+    .govuk-link:link,
+    .govuk-link:visited, {
+      color: #1d70b8;
+    }
+    .govuk-link:hover {
+      color: #003078;
+    }
+    .govuk-link:active,
+    .govuk-link:focus {
+      color: #0b0c0c;
+    }
+    .govuk-link:focus {
+      outline: 3px solid rgba(0,0,0,0);
+      background-color: #fd0;
+      box-shadow: 0 -2px #fd0, 0 4px #0b0c0c;
+      text-decoration: none;
+    }
+    /* Unlike GDS, the summary list is always vertical, since the values can
+       be long, e.g. with URLs */
+    .govuk-summary-list {
+      font-weight: 400;
+      font-size: 16px;
+      font-size: 1rem;
+      line-height: 1.25;
+      margin: 0 0 20px;
+    } 
+    @media (min-width: 40.0625em) {
+      .govuk-summary-list {
+        font-size: 19px;
+        font-size: 1.1875rem;
+        line-height: 1.31579;
+        margin-bottom: 30px;
+      }
+    }
+    .govuk-summary-list__row {
+      margin-bottom: 15px; /* Appears reasonable on both mobile and desktop */
+      border-bottom: 1px solid #b1b4b6;
+    }
+    .govuk-summary-list__key,
+    .govuk-summary-list__value {
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+      margin: 0;
+    }
+    .govuk-summary-list__key {
+      margin-bottom: 5px;
+      font-weight: 700;
+    }
+    .govuk-summary-list__value {
+      margin-bottom: 15px; /* Appears reasonable on both mobile and desktop */
+    }
   </style>
-
 </head>
+<body class="govuk-template__body">
+  <header class="govuk-header"><div class="govuk-header__container govuk-width-container"></div></header>
+  <main class="govuk-width-container govuk-main-wrapper">
+      <div class="govuk-grid-row"><div class="govuk-grid-column-two-thirds">
+      <h1 class="govuk-heading-xl">You are not allowed to access this page</h1>
 
-<body>
+      <p class="govuk-body">You do not appear to be on a trusted network.</p>
 
-  <h1>Access Denied</h1>
+      <p class="govuk-body">If you require access please email the Department for International Trade WebOps team at <a class="govuk-link" href="mailto:{{ email }}">{{ email }}</a> with the following details.</p>
 
-  <p>Your IP address: {{ client_ip }}</p>
-
-  <p>Unfortunately your IP address does not appear to come from a trusted network.</p>
-
-  <p>If you require access please contact the DIT Webops team via email at <a href="email:{{ email }}">{{ email }}</a> and provide your IP address which is listed above.</p>
-
+      <dl class="govuk-summary-list">
+        <div class="govuk-summary-list__row">
+            <dt class="govuk-summary-list__key">IP</dt>
+            <dd class="govuk-summary-list__value">{{ client_ip }}</dd>
+        </div>
+        <div class="govuk-summary-list__row">
+            <dt class="govuk-summary-list__key">URL</dt>
+            <dd class="govuk-summary-list__value">{{ forwarded_url }}</dd>
+        </div>
+      </dl>
+    </div></div>
+  </main>
 </body>
 </html>
