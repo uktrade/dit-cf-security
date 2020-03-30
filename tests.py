@@ -1,7 +1,11 @@
 import base64
+import gzip
 import json
 from multiprocessing import (
     Process,
+)
+from io import (
+    BytesIO,
 )
 import itertools
 import os
@@ -299,6 +303,23 @@ class TestCfSecurity(unittest.TestCase):
         ).headers[cookie_header]
         self.assertEqual(cookie_header_value, 'my_name=my_value_b')
 
+    def test_gzipped(self):
+        self.addCleanup(create_filter(8080))
+        self.addCleanup(create_origin(8081))
+        wait_until_connectable(8080)
+        wait_until_connectable(8081)
+        response = requests.request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-cf-forwarded-url': 'http://localtest.me:8081/gzipped',
+                'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
+            },
+            data=b'something-to-zip',
+        )
+        self.assertEqual(response.content, b'something-to-zip')
+        self.assertEqual(response.headers['content-encoding'], 'gzip')
+
     def test_slow_upload(self):
         self.addCleanup(create_filter(8080))
         self.addCleanup(create_origin(8081))
@@ -438,6 +459,9 @@ def create_origin(port):
         origin_app.endpoint('multiple-cookies')(multiple_cookies)
         origin_app.url_map.add(Rule('/multiple-cookies', endpoint='multiple-cookies'))
 
+        origin_app.endpoint('gzipped')(gzipped)
+        origin_app.url_map.add(Rule('/gzipped', endpoint='gzipped'))
+
         origin_app.endpoint('echo')(echo)
         origin_app.url_map.add(Rule('/', endpoint='echo'))
         origin_app.url_map.add(Rule('/<path:path>', endpoint='echo'))
@@ -472,6 +496,18 @@ def create_origin(port):
         return Response(b'', headers=[
             ('set-cookie', cookie)
             for cookie in cookies
+        ], status=200)
+
+    def gzipped():
+        gzip_buffer = BytesIO()
+        gzip_file = gzip.GzipFile(mode='wb', compresslevel=9, fileobj=gzip_buffer)
+        gzip_file.write(request.stream.read())
+        gzip_file.close()
+        zipped = gzip_buffer.getvalue()
+
+        return Response(zipped, headers=[
+            ('content-encoding', 'gzip'),
+            ('content-length', str(len(zipped))),
         ], status=200)
 
     def echo(path='/'):
