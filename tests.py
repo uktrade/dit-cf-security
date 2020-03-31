@@ -27,6 +27,9 @@ import requests
 from werkzeug.routing import (
     Rule,
 )
+from werkzeug.serving import (
+    WSGIRequestHandler,
+)
 
 
 class TestCfSecurity(unittest.TestCase):
@@ -540,6 +543,8 @@ def create_origin(port):
 
         signal.signal(signal.SIGTERM, _stop)
         signal.signal(signal.SIGINT, _stop)
+
+        WSGIRequestHandler.protocol_version = 'HTTP/1.1'
 
         try:
             origin_app.run(host='', port=port, debug=False)
