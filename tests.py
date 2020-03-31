@@ -39,7 +39,10 @@ class TestCfSecurity(unittest.TestCase):
             wait_until_connectable(8080, max_attempts=10)
 
     def test_method_is_forwarded(self):
-        self.addCleanup(create_filter(8080))
+        self.addCleanup(create_filter(8080, (
+            ('ORIGIN_HOSTNAME', 'localhost:8081'),
+            ('ORIGIN_PROTO', 'http'),
+        )))
         self.addCleanup(create_origin(8081))
         wait_until_connectable(8080)
         wait_until_connectable(8081)
@@ -59,7 +62,10 @@ class TestCfSecurity(unittest.TestCase):
         self.assertEqual(methods, echo_methods)
 
     def test_host_is_forwarded(self):
-        self.addCleanup(create_filter(8080))
+        self.addCleanup(create_filter(8080, (
+            ('ORIGIN_HOSTNAME', 'localhost:8081'),
+            ('ORIGIN_PROTO', 'http'),
+        )))
         self.addCleanup(create_origin(8081))
         wait_until_connectable(8080)
         wait_until_connectable(8081)
@@ -68,14 +74,17 @@ class TestCfSecurity(unittest.TestCase):
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
-                'x-cf-forwarded-url': 'http://127.0.0.1:8081/',
+                'x-cf-forwarded-url': 'http://somehost.com/',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
             },
         ).headers['x-echo-header-host']
-        self.assertEqual(host, '127.0.0.1:8081')
+        self.assertEqual(host, 'somehost.com')
 
     def test_path_and_query_is_forwarded(self):
-        self.addCleanup(create_filter(8080))
+        self.addCleanup(create_filter(8080, (
+            ('ORIGIN_HOSTNAME', '127.0.0.1:8081'),
+            ('ORIGIN_PROTO', 'http'),
+        )))
         self.addCleanup(create_origin(8081))
         wait_until_connectable(8080)
         wait_until_connectable(8081)
@@ -85,19 +94,22 @@ class TestCfSecurity(unittest.TestCase):
             ('a', 'b'),
             ('🍰', '😃'),
         ])
-        raw_uri_expected = f'{path}?{query}'
+        raw_uri_expected = f'http://127.0.0.1:8081{path}?{query}'
         raw_uri_received = requests.request(
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
-                'x-cf-forwarded-url': f'http://127.0.0.1:8081{raw_uri_expected}',
+                'x-cf-forwarded-url': raw_uri_expected,
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
             },
         ).headers['x-echo-raw-uri']
         self.assertEqual(raw_uri_expected, raw_uri_received)
 
     def test_body_is_forwarded(self):
-        self.addCleanup(create_filter(8080))
+        self.addCleanup(create_filter(8080, (
+            ('ORIGIN_HOSTNAME', 'localhost:8081'),
+            ('ORIGIN_PROTO', 'http'),
+        )))
         self.addCleanup(create_origin(8081))
         wait_until_connectable(8080)
         wait_until_connectable(8081)
@@ -125,7 +137,10 @@ class TestCfSecurity(unittest.TestCase):
         self.assertEqual(method_bodies_expected, method_bodies_received)
 
     def test_status_is_forwarded(self):
-        self.addCleanup(create_filter(8080))
+        self.addCleanup(create_filter(8080, (
+            ('ORIGIN_HOSTNAME', 'localhost:8081'),
+            ('ORIGIN_PROTO', 'http'),
+        )))
         self.addCleanup(create_origin(8081))
         wait_until_connectable(8080)
         wait_until_connectable(8081)
@@ -148,8 +163,169 @@ class TestCfSecurity(unittest.TestCase):
         ]
         self.assertEqual(method_statuses_expected, method_statuses_received)
 
+    def test_connection_is_not_forwarded(self):
+        self.addCleanup(create_filter(8080, (
+            ('ORIGIN_HOSTNAME', 'localhost:8081'),
+            ('ORIGIN_PROTO', 'http'),
+        )))
+        self.addCleanup(create_origin(8081))
+        wait_until_connectable(8080)
+        wait_until_connectable(8081)
+
+        response = requests.request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-cf-forwarded-url': 'http://anyhost.com/',
+                'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
+                'connection': 'close',
+            },
+            data=b'some-data',
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn('x-echo-header-connection', response.headers)
+
+    def test_connection_is_reused_for_same_domain(self):
+        self.addCleanup(create_filter(8080, (
+            ('ORIGIN_HOSTNAME', 'localhost:8081'),
+            ('ORIGIN_PROTO', 'http'),
+        )))
+        self.addCleanup(create_origin(8081))
+        wait_until_connectable(8080)
+        wait_until_connectable(8081)
+
+        ports = [
+            requests.request(
+                'GET',
+                url='http://127.0.0.1:8080/',
+                headers={
+                    'x-cf-forwarded-url': 'http://anyhost.com/some-path',
+                    'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
+                },
+                data=b'some-data',
+            ).headers['x-echo-remote-port']
+            for _ in range(0, 100)
+        ]
+        self.assertEqual(len(set(ports)), 1)
+
+    def test_connection_is_reused_for_different_domains(self):
+        self.addCleanup(create_filter(8080, (
+            ('ORIGIN_HOSTNAME', 'localhost:8081'),
+            ('ORIGIN_PROTO', 'http'),
+        )))
+        self.addCleanup(create_origin(8081))
+        wait_until_connectable(8080)
+        wait_until_connectable(8081)
+
+        ports = [
+            requests.request(
+                'GET',
+                url='http://127.0.0.1:8080/',
+                headers={
+                    'x-cf-forwarded-url': 'http://'+ str(uuid.uuid4()) +'.com/some-path',
+                    'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
+                },
+                data=b'some-data',
+            ).headers['x-echo-remote-port']
+            for _ in range(0, 100)
+        ]
+        self.assertEqual(len(set(ports)), 1)
+
+    def test_no_issue_if_origin_restarted(self):
+        self.addCleanup(create_filter(8080, (
+            ('ORIGIN_HOSTNAME', 'localhost:8081'),
+            ('ORIGIN_PROTO', 'http'),
+        )))
+        stop_origin_1 = create_origin(8081)
+        self.addCleanup(stop_origin_1)
+        wait_until_connectable(8080)
+        wait_until_connectable(8081)
+
+        response_1 = requests.request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-cf-forwarded-url': 'http://anydomain.com/some-path',
+                'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
+            },
+            data=b'some-data',
+        )
+        self.assertEqual(response_1.status_code, 200)
+        self.assertEqual(response_1.content, b'some-data')
+        remote_port_1 = response_1.headers['x-echo-remote-port']
+
+        stop_origin_1()
+        stop_origin_2 = create_origin(8081)
+        self.addCleanup(stop_origin_2)
+        wait_until_connectable(8081)
+
+        response_2 = requests.request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-cf-forwarded-url': 'http://anydomain.com/some-path',
+                'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
+            },
+            data=b'some-more-data',
+        )
+        self.assertEqual(response_2.status_code, 200)
+        self.assertEqual(response_2.content, b'some-more-data')
+        remote_port_2 = response_2.headers['x-echo-remote-port']
+
+        # A meta test to ensure that we really have
+        # restart the origin server. Hopefully not too flaky.
+        self.assertNotEqual(remote_port_1, remote_port_2)
+
+    def test_no_issue_if_request_unfinished(self):
+        self.addCleanup(create_filter(8080, (
+            ('ORIGIN_HOSTNAME', 'localhost:8081'),
+            ('ORIGIN_PROTO', 'http'),
+        )))
+        self.addCleanup(create_origin(8081))
+        wait_until_connectable(8080)
+        wait_until_connectable(8081)
+
+        def data():
+            yield b'-' * 100_000
+            time.sleep(1)
+            raise Exception()
+
+        # Testing non-chunked streaming requests
+        with requests.Session() as session:
+            request = requests.Request(
+                'POST',
+                'http://127.0.0.1:8080/',
+                headers={
+                    'x-cf-forwarded-url': 'http://127.0.0.1:8081/',
+                    'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
+                    'x-echo-response-status': '201',
+                },
+                data=data(),
+            )
+            prepared_request = session.prepare_request(request)
+            del prepared_request.headers['transfer-encoding']
+
+            # We only send half of the request
+            prepared_request.headers['content-length'] = '200000'
+            with self.assertRaises(Exception):
+                session.send(prepared_request)
+
+        response = requests.request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-cf-forwarded-url': 'http://127.0.0.1:8081/',
+                'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
+            },
+            data='some-data'
+        )
+        self.assertEqual(response.content, b'some-data')
+
     def test_request_header_is_forwarded(self):
-        self.addCleanup(create_filter(8080))
+        self.addCleanup(create_filter(8080, (
+            ('ORIGIN_HOSTNAME', 'localhost:8081'),
+            ('ORIGIN_PROTO', 'http'),
+        )))
         self.addCleanup(create_origin(8081))
         wait_until_connectable(8080)
         wait_until_connectable(8081)
@@ -166,7 +342,10 @@ class TestCfSecurity(unittest.TestCase):
         self.assertEqual(response_header, 'some-value')
 
     def test_content_length_is_forwarded(self):
-        self.addCleanup(create_filter(8080))
+        self.addCleanup(create_filter(8080, (
+            ('ORIGIN_HOSTNAME', 'localhost:8081'),
+            ('ORIGIN_PROTO', 'http'),
+        )))
         self.addCleanup(create_origin(8081))
         wait_until_connectable(8080)
         wait_until_connectable(8081)
@@ -184,7 +363,10 @@ class TestCfSecurity(unittest.TestCase):
         self.assertNotIn('x-echo-header-transfer-encoding', headers)
 
     def test_response_header_is_forwarded(self):
-        self.addCleanup(create_filter(8080))
+        self.addCleanup(create_filter(8080, (
+            ('ORIGIN_HOSTNAME', 'localhost:8081'),
+            ('ORIGIN_PROTO', 'http'),
+        )))
         self.addCleanup(create_origin(8081))
         wait_until_connectable(8080)
         wait_until_connectable(8081)
@@ -201,7 +383,10 @@ class TestCfSecurity(unittest.TestCase):
         self.assertEqual(response_header, 'some-value')
 
     def test_head_content_length_is_forwarded(self):
-        self.addCleanup(create_filter(8080))
+        self.addCleanup(create_filter(8080, (
+            ('ORIGIN_HOSTNAME', 'localhost:8081'),
+            ('ORIGIN_PROTO', 'http'),
+        )))
         self.addCleanup(create_origin(8081))
         wait_until_connectable(8080)
         wait_until_connectable(8081)
@@ -219,7 +404,10 @@ class TestCfSecurity(unittest.TestCase):
         self.assertEqual(content_length, '0')
 
     def test_request_cookie_is_forwarded(self):
-        self.addCleanup(create_filter(8080))
+        self.addCleanup(create_filter(8080, (
+            ('ORIGIN_HOSTNAME', 'localtest.me:8081'),
+            ('ORIGIN_PROTO', 'http'),
+        )))
         self.addCleanup(create_origin(8081))
         wait_until_connectable(8080)
         wait_until_connectable(8081)
@@ -247,7 +435,10 @@ class TestCfSecurity(unittest.TestCase):
         self.assertEqual(response_header, 'my_name=my_value; my_name_b=my_other_value')
 
     def test_response_cookie_is_forwarded(self):
-        self.addCleanup(create_filter(8080))
+        self.addCleanup(create_filter(8080, (
+            ('ORIGIN_HOSTNAME', 'localtest.me:8081'),
+            ('ORIGIN_PROTO', 'http'),
+        )))
         self.addCleanup(create_origin(8081))
         wait_until_connectable(8080)
         wait_until_connectable(8081)
@@ -293,7 +484,10 @@ class TestCfSecurity(unittest.TestCase):
         self.assertEqual(response_header, 'my_name=my_value; Max-Age=100')
 
     def test_multiple_response_cookies_are_forwarded(self):
-        self.addCleanup(create_filter(8080))
+        self.addCleanup(create_filter(8080, (
+            ('ORIGIN_HOSTNAME', 'localtest.me:8081'),
+            ('ORIGIN_PROTO', 'http'),
+        )))
         self.addCleanup(create_origin(8081))
         wait_until_connectable(8080)
         wait_until_connectable(8081)
@@ -321,7 +515,10 @@ class TestCfSecurity(unittest.TestCase):
         self.assertIn(b'set-cookie: name_b=value_b\r\n', response)
 
     def test_cookie_not_stored(self):
-        self.addCleanup(create_filter(8080))
+        self.addCleanup(create_filter(8080, (
+            ('ORIGIN_HOSTNAME', 'localtest.me:8081'),
+            ('ORIGIN_PROTO', 'http'),
+        )))
         self.addCleanup(create_origin(8081))
         wait_until_connectable(8080)
         wait_until_connectable(8081)
@@ -362,7 +559,10 @@ class TestCfSecurity(unittest.TestCase):
         self.assertEqual(cookie_header_value, 'my_name=my_value_b')
 
     def test_gzipped(self):
-        self.addCleanup(create_filter(8080))
+        self.addCleanup(create_filter(8080, (
+            ('ORIGIN_HOSTNAME', 'localtest.me:8081'),
+            ('ORIGIN_PROTO', 'http'),
+        )))
         self.addCleanup(create_origin(8081))
         wait_until_connectable(8080)
         wait_until_connectable(8081)
@@ -379,7 +579,10 @@ class TestCfSecurity(unittest.TestCase):
         self.assertEqual(response.headers['content-encoding'], 'gzip')
 
     def test_slow_upload(self):
-        self.addCleanup(create_filter(8080))
+        self.addCleanup(create_filter(8080, (
+            ('ORIGIN_HOSTNAME', 'localhost:8081'),
+            ('ORIGIN_PROTO', 'http'),
+        )))
         self.addCleanup(create_origin(8081))
         wait_until_connectable(8080)
         wait_until_connectable(8081)
@@ -410,7 +613,10 @@ class TestCfSecurity(unittest.TestCase):
         self.assertEqual(content, b'-' * num_bytes)
 
     def test_chunked_response(self):
-        self.addCleanup(create_filter(8080))
+        self.addCleanup(create_filter(8080, (
+            ('ORIGIN_HOSTNAME', 'localhost:8081'),
+            ('ORIGIN_PROTO', 'http'),
+        )))
         self.addCleanup(create_origin(8081))
         wait_until_connectable(8080)
         wait_until_connectable(8081)
@@ -429,7 +635,10 @@ class TestCfSecurity(unittest.TestCase):
         self.assertEqual(response.content, b'-' * 10000)
 
     def test_https(self):
-        self.addCleanup(create_filter(8080))
+        self.addCleanup(create_filter(8080, (
+            ('ORIGIN_HOSTNAME', 'www.google.com'),
+            ('ORIGIN_PROTO', 'https'),
+        )))
         wait_until_connectable(8080)
 
         # On the one hand not great to depend on a 3rd party/external site,
@@ -446,10 +655,47 @@ class TestCfSecurity(unittest.TestCase):
         ).content
         self.assertIn(b'<title>Google</title>', content)
 
+    def test_https_origin_not_exist_returns_500(self):
+        self.addCleanup(create_filter(8080, (
+            ('ORIGIN_HOSTNAME', 'does.not.exist'),
+            ('ORIGIN_PROTO', 'https'),
+        )))
+        wait_until_connectable(8080)
+
+        response = requests.request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-cf-forwarded-url': 'https://www.google.com/',
+                'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
+            },
+        )
+        self.assertEqual(response.status_code, 500)
+
+    def test_http_origin_not_exist_returns_500(self):
+        self.addCleanup(create_filter(8080, (
+            ('ORIGIN_HOSTNAME', 'does.not.exist'),
+            ('ORIGIN_PROTO', 'http'),
+        )))
+        wait_until_connectable(8080)
+
+        response = requests.request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-cf-forwarded-url': 'http://www.google.com/',
+                'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
+            },
+        )
+        self.assertEqual(response.status_code, 500)
+
     def test_missing_x_forwarded_for_returns_403_and_origin_not_called(self):
         # Origin not running: if an attempt was made to connect to it, we
         # would get a 500
-        self.addCleanup(create_filter(8080))
+        self.addCleanup(create_filter(8080, (
+            ('ORIGIN_HOSTNAME', 'localhost:8081'),
+            ('ORIGIN_PROTO', 'http'),
+        )))
         wait_until_connectable(8080)
 
         status_code = requests.request(
@@ -464,7 +710,10 @@ class TestCfSecurity(unittest.TestCase):
     def test_incorrect_x_forwarded_for_returns_403_and_origin_not_called(self):
         # Origin not running: if an attempt was made to connect to it, we
         # would get a 500
-        self.addCleanup(create_filter(8080))
+        self.addCleanup(create_filter(8080, (
+            ('ORIGIN_HOSTNAME', 'localhost:8081'),
+            ('ORIGIN_PROTO', 'http'),
+        )))
         wait_until_connectable(8080)
 
         x_forwarded_for_headers = [
@@ -488,7 +737,10 @@ class TestCfSecurity(unittest.TestCase):
         self.assertEqual(status_codes, [403] * len(x_forwarded_for_headers))
 
     def test_not_running_origin_returns_500(self):
-        self.addCleanup(create_filter(8080))
+        self.addCleanup(create_filter(8080, (
+            ('ORIGIN_HOSTNAME', 'localhost:8081'),
+            ('ORIGIN_PROTO', 'http'),
+        )))
         wait_until_connectable(8080)
         status_code = requests.request(
             'GET',
@@ -500,7 +752,7 @@ class TestCfSecurity(unittest.TestCase):
         ).status_code
         self.assertEqual(status_code, 500)
 
-def create_filter(port):
+def create_filter(port, env=()):
     def stop():
         process.terminate()
         process.wait()
@@ -515,6 +767,7 @@ def create_filter(port):
         **os.environ,
         'ALLOWED_IPS': '1.2.3.4',
         'PORT': str(port),
+        **dict(env),
     })
 
     return stop
@@ -591,6 +844,7 @@ def create_origin(port):
         headers = [
             ('x-echo-method', request.method),
             ('x-echo-raw-uri', request.environ['RAW_URI']),
+            ('x-echo-remote-port', request.environ['REMOTE_PORT']),
         ] + [
             ('x-echo-header-' + k, v)
             for k, v in request.headers.items()
