@@ -162,6 +162,24 @@ class TestCfSecurity(unittest.TestCase):
         ).headers['x-echo-header-some-header']
         self.assertEqual(response_header, 'some-value')
 
+    def test_content_length_is_forwarded(self):
+        self.addCleanup(create_filter(8080))
+        self.addCleanup(create_origin(8081))
+        wait_until_connectable(8080)
+        wait_until_connectable(8081)
+
+        headers = requests.request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-cf-forwarded-url': 'http://127.0.0.1:8081/',
+                'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
+            },
+            data=b'some-data',
+        ).headers
+        self.assertEqual(headers['x-echo-header-content-length'], str(len(b'some-data')))
+        self.assertNotIn('x-echo-header-transfer-encoding', headers)
+
     def test_response_header_is_forwarded(self):
         self.addCleanup(create_filter(8080))
         self.addCleanup(create_origin(8081))
