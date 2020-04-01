@@ -2,7 +2,6 @@ import os
 import sys
 import logging
 from ipaddress import ip_network, ip_address
-from urllib.parse import urlparse, urljoin
 
 from flask import Flask, request, Response, render_template
 import urllib3
@@ -16,6 +15,21 @@ app.config['BASIC_AUTH_PASSWORD'] = os.environ.get('BASIC_AUTH_PASSWORD')
 app.config['SHARED_SECRET'] = os.environ.get('SHARED_SECRET', '')
 app.config['EMAIL'] = os.environ.get('EMAIL', 'unspecified')
 app.config['LOG_LEVEL'] = os.environ.get('LOG_LEVEL', 'INFO')
+
+# All requested URLs are eventually routed to to the same load balancer, which
+# uses the host header to route requests to the correct application. So as
+# long as we pass the application's host header, which urllib3 does
+# automatically from the URL, to resolve the IP address of the origin server,
+# we can use _any_ hostname that resolves to this load balancer. So if we use
+# the _same_ hostname for all requests...
+# - we allow onward persistant connections to the load balancer that are
+#   reused for all requests;
+# - we avoid requests going back through the CDN, which is good for both
+#   latency, and (hopefully) debuggability since there are fewer hops.
+PoolClass = \
+    urllib3.HTTPConnectionPool if os.environ['ORIGIN_PROTO'] == 'http' else \
+    urllib3.HTTPSConnectionPool
+http = PoolClass(os.environ['ORIGIN_HOSTNAME'], maxsize=1000)
 
 logging.basicConfig(stream=sys.stdout, level=app.config['LOG_LEVEL'])
 logger = logging.getLogger(__name__)
@@ -121,16 +135,16 @@ def handle_request(path):
                 break
             yield contents
 
-    http = urllib3.PoolManager()
     origin_response = http.request(
         request.method,
         forwarded_url,
         headers={
             k: v for k, v in request.headers
-            if k not in ['Host', 'X-Cf-Forwarded-Url']
+            if k not in ('Host', 'X-Cf-Forwarded-Url', 'Connection')
         },
         preload_content=False,
         redirect=False,
+        assert_same_host=False,
         body=downstream_data(),
     )
 
@@ -141,7 +155,10 @@ def handle_request(path):
     downstream_response = Response(
         origin_response.stream(65536, decode_content=False),
         status=origin_response.status,
-        headers=origin_response.headers.items(),
+        headers=[
+            (k, v) for k, v in origin_response.headers.items()
+            if k.lower() != 'connection'
+        ],
     )
     downstream_response.autocorrect_location_header = False
     downstream_response.call_on_close(origin_response.release_conn)
