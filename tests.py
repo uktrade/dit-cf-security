@@ -23,7 +23,7 @@ from flask import (
     Response,
     request,
 )
-import requests
+import urllib3
 from werkzeug.routing import (
     Rule,
 )
@@ -49,7 +49,7 @@ class TestCfSecurity(unittest.TestCase):
 
         methods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD']
         echo_methods = [
-            requests.request(
+            urllib3.PoolManager().request(
                 method,
                 url='http://127.0.0.1:8080/',
                 headers={
@@ -70,7 +70,7 @@ class TestCfSecurity(unittest.TestCase):
         wait_until_connectable(8080)
         wait_until_connectable(8081)
 
-        host = requests.request(
+        host = urllib3.PoolManager().request(
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
@@ -95,7 +95,7 @@ class TestCfSecurity(unittest.TestCase):
             ('🍰', '😃'),
         ])
         raw_uri_expected = f'http://127.0.0.1:8081{path}?{query}'
-        raw_uri_received = requests.request(
+        raw_uri_received = urllib3.PoolManager().request(
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
@@ -123,15 +123,15 @@ class TestCfSecurity(unittest.TestCase):
             ('OPTIONS', uuid.uuid4().bytes * 100000),
         ]
         method_bodies_received = [
-            (method, requests.request(
+            (method, urllib3.PoolManager().request(
                 method,
                 url='http://127.0.0.1:8080/',
                 headers={
                     'x-cf-forwarded-url': 'http://127.0.0.1:8081/',
                     'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
                 },
-                data=body,
-            ).content)
+                body=body,
+            ).data)
             for method, body in method_bodies_expected
         ]
         self.assertEqual(method_bodies_expected, method_bodies_received)
@@ -150,7 +150,7 @@ class TestCfSecurity(unittest.TestCase):
             ['200', '201', '401', '403', '500']
         ))
         method_statuses_received = [
-            (method, str(requests.request(
+            (method, str(urllib3.PoolManager().request(
                 method,
                 url='http://127.0.0.1:8080/',
                 headers={
@@ -158,7 +158,7 @@ class TestCfSecurity(unittest.TestCase):
                     'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
                     'x-echo-response-status': status,
                 },
-            ).status_code))
+            ).status))
             for method, status in method_statuses_expected
         ]
         self.assertEqual(method_statuses_expected, method_statuses_received)
@@ -172,7 +172,7 @@ class TestCfSecurity(unittest.TestCase):
         wait_until_connectable(8080)
         wait_until_connectable(8081)
 
-        response = requests.request(
+        response = urllib3.PoolManager().request(
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
@@ -180,9 +180,9 @@ class TestCfSecurity(unittest.TestCase):
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
                 'connection': 'close',
             },
-            data=b'some-data',
+            body=b'some-data',
         )
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status, 200)
         self.assertNotIn('x-echo-header-connection', response.headers)
 
     def test_connection_is_reused_for_same_domain(self):
@@ -195,14 +195,14 @@ class TestCfSecurity(unittest.TestCase):
         wait_until_connectable(8081)
 
         ports = [
-            requests.request(
+            urllib3.PoolManager().request(
                 'GET',
                 url='http://127.0.0.1:8080/',
                 headers={
                     'x-cf-forwarded-url': 'http://anyhost.com/some-path',
                     'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
                 },
-                data=b'some-data',
+                body=b'some-data',
             ).headers['x-echo-remote-port']
             for _ in range(0, 100)
         ]
@@ -218,14 +218,14 @@ class TestCfSecurity(unittest.TestCase):
         wait_until_connectable(8081)
 
         ports = [
-            requests.request(
+            urllib3.PoolManager().request(
                 'GET',
                 url='http://127.0.0.1:8080/',
                 headers={
                     'x-cf-forwarded-url': 'http://'+ str(uuid.uuid4()) +'.com/some-path',
                     'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
                 },
-                data=b'some-data',
+                body=b'some-data',
             ).headers['x-echo-remote-port']
             for _ in range(0, 100)
         ]
@@ -241,17 +241,17 @@ class TestCfSecurity(unittest.TestCase):
         wait_until_connectable(8080)
         wait_until_connectable(8081)
 
-        response_1 = requests.request(
+        response_1 = urllib3.PoolManager().request(
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
                 'x-cf-forwarded-url': 'http://anydomain.com/some-path',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
             },
-            data=b'some-data',
+            body=b'some-data',
         )
-        self.assertEqual(response_1.status_code, 200)
-        self.assertEqual(response_1.content, b'some-data')
+        self.assertEqual(response_1.status, 200)
+        self.assertEqual(response_1.data, b'some-data')
         remote_port_1 = response_1.headers['x-echo-remote-port']
 
         stop_origin_1()
@@ -259,17 +259,17 @@ class TestCfSecurity(unittest.TestCase):
         self.addCleanup(stop_origin_2)
         wait_until_connectable(8081)
 
-        response_2 = requests.request(
+        response_2 = urllib3.PoolManager().request(
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
                 'x-cf-forwarded-url': 'http://anydomain.com/some-path',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
             },
-            data=b'some-more-data',
+            body=b'some-more-data',
         )
-        self.assertEqual(response_2.status_code, 200)
-        self.assertEqual(response_2.content, b'some-more-data')
+        self.assertEqual(response_2.status, 200)
+        self.assertEqual(response_2.data, b'some-more-data')
         remote_port_2 = response_2.headers['x-echo-remote-port']
 
         # A meta test to ensure that we really have
@@ -285,41 +285,37 @@ class TestCfSecurity(unittest.TestCase):
         wait_until_connectable(8080)
         wait_until_connectable(8081)
 
-        def data():
+        class BodyException(Exception):
+            pass
+
+        def body():
             yield b'-' * 100_000
             time.sleep(1)
-            raise Exception()
+            raise BodyException()
 
-        # Testing non-chunked streaming requests
-        with requests.Session() as session:
-            request = requests.Request(
+        # We only send half of the request
+        with self.assertRaises(BodyException):
+            urllib3.PoolManager().request(
                 'POST',
                 'http://127.0.0.1:8080/',
                 headers={
+                    'content-length': '200000',
                     'x-cf-forwarded-url': 'http://127.0.0.1:8081/',
                     'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
-                    'x-echo-response-status': '201',
                 },
-                data=data(),
+                body=body(),
             )
-            prepared_request = session.prepare_request(request)
-            del prepared_request.headers['transfer-encoding']
 
-            # We only send half of the request
-            prepared_request.headers['content-length'] = '200000'
-            with self.assertRaises(Exception):
-                session.send(prepared_request)
-
-        response = requests.request(
+        response = urllib3.PoolManager().request(
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
                 'x-cf-forwarded-url': 'http://127.0.0.1:8081/',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
             },
-            data='some-data'
+            body='some-data'
         )
-        self.assertEqual(response.content, b'some-data')
+        self.assertEqual(response.data, b'some-data')
 
     def test_request_header_is_forwarded(self):
         self.addCleanup(create_filter(8080, (
@@ -330,7 +326,7 @@ class TestCfSecurity(unittest.TestCase):
         wait_until_connectable(8080)
         wait_until_connectable(8081)
 
-        response_header = requests.request(
+        response_header = urllib3.PoolManager().request(
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
@@ -350,14 +346,14 @@ class TestCfSecurity(unittest.TestCase):
         wait_until_connectable(8080)
         wait_until_connectable(8081)
 
-        headers = requests.request(
+        headers = urllib3.PoolManager().request(
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
                 'x-cf-forwarded-url': 'http://127.0.0.1:8081/',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
             },
-            data=b'some-data',
+            body=b'some-data',
         ).headers
         self.assertEqual(headers['x-echo-header-content-length'], str(len(b'some-data')))
         self.assertNotIn('x-echo-header-transfer-encoding', headers)
@@ -371,7 +367,7 @@ class TestCfSecurity(unittest.TestCase):
         wait_until_connectable(8080)
         wait_until_connectable(8081)
 
-        response_header = requests.request(
+        response_header = urllib3.PoolManager().request(
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
@@ -391,7 +387,7 @@ class TestCfSecurity(unittest.TestCase):
         wait_until_connectable(8080)
         wait_until_connectable(8081)
 
-        content_length = requests.request(
+        content_length = urllib3.PoolManager().request(
             'HEAD',
             url='http://127.0.0.1:8080/',
             headers={
@@ -412,7 +408,7 @@ class TestCfSecurity(unittest.TestCase):
         wait_until_connectable(8080)
         wait_until_connectable(8081)
 
-        response_header = requests.request(
+        response_header = urllib3.PoolManager().request(
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
@@ -423,7 +419,7 @@ class TestCfSecurity(unittest.TestCase):
         ).headers['x-echo-header-cookie']
         self.assertEqual(response_header, 'my_name=my_value')
 
-        response_header = requests.request(
+        response_header = urllib3.PoolManager().request(
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
@@ -443,7 +439,7 @@ class TestCfSecurity(unittest.TestCase):
         wait_until_connectable(8080)
         wait_until_connectable(8081)
 
-        response_header = requests.request(
+        response_header = urllib3.PoolManager().request(
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
@@ -459,7 +455,7 @@ class TestCfSecurity(unittest.TestCase):
             'my_name=my_value; Domain=.localtest.me; ' \
             'Expires=Wed, 29-Apr-2020 15:06:49 GMT; Secure; ' \
             'HttpOnly; Path=/path'
-        response_header = requests.request(
+        response_header = urllib3.PoolManager().request(
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
@@ -472,7 +468,7 @@ class TestCfSecurity(unittest.TestCase):
 
         # Checking the treatment of Max-Age (which Python requests can change
         # to Expires)
-        response_header = requests.request(
+        response_header = urllib3.PoolManager().request(
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
@@ -525,7 +521,7 @@ class TestCfSecurity(unittest.TestCase):
 
         # Ensure that the filter itself don't store cookies set by the origin
         cookie_header = 'x-echo-header-cookie'
-        set_cookie = requests.request(
+        set_cookie = urllib3.PoolManager().request(
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
@@ -535,7 +531,7 @@ class TestCfSecurity(unittest.TestCase):
             },
         ).headers['set-cookie']
         self.assertEqual(set_cookie, 'my_name=my_value_a; Domain=.localtest.me; Path=/path')
-        has_cookie = cookie_header in requests.request(
+        has_cookie = cookie_header in urllib3.PoolManager().request(
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
@@ -547,7 +543,7 @@ class TestCfSecurity(unittest.TestCase):
 
         # Meta test, ensuring that cookie_header is the right header to
         # check for to see if the echo origin received the cookie
-        cookie_header_value = requests.request(
+        cookie_header_value = urllib3.PoolManager().request(
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
@@ -566,16 +562,16 @@ class TestCfSecurity(unittest.TestCase):
         self.addCleanup(create_origin(8081))
         wait_until_connectable(8080)
         wait_until_connectable(8081)
-        response = requests.request(
+        response = urllib3.PoolManager().request(
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
                 'x-cf-forwarded-url': 'http://localtest.me:8081/gzipped',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
             },
-            data=b'something-to-zip',
+            body=b'something-to-zip',
         )
-        self.assertEqual(response.content, b'something-to-zip')
+        self.assertEqual(response.data, b'something-to-zip')
         self.assertEqual(response.headers['content-encoding'], 'gzip')
 
     def test_slow_upload(self):
@@ -588,29 +584,23 @@ class TestCfSecurity(unittest.TestCase):
         wait_until_connectable(8081)
 
         num_bytes = 35
-        def data():
+        def body():
             for _ in range(0, num_bytes):
                 yield b'-'
                 time.sleep(1)
 
         # Testing non-chunked streaming requests
-        with requests.Session() as session:
-            request = requests.Request(
-                'POST',
-                'http://127.0.0.1:8080/',
-                headers={
-                    'x-cf-forwarded-url': 'http://127.0.0.1:8081/',
-                    'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
-                    'x-echo-response-status': '201',
-                },
-                data=data(),
-            )
-            prepared_request = session.prepare_request(request)
-            del prepared_request.headers['transfer-encoding']
-            prepared_request.headers['content-length'] = str(num_bytes)
-            with session.send(prepared_request) as response:
-                content = response.content
-        self.assertEqual(content, b'-' * num_bytes)
+        data = urllib3.PoolManager().request(
+            'POST',
+            'http://127.0.0.1:8080/',
+            headers={
+                'content-length': str(num_bytes),
+                'x-cf-forwarded-url': 'http://127.0.0.1:8081/',
+                'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
+            },
+            body=body(),
+        ).data
+        self.assertEqual(data, b'-' * num_bytes)
 
     def test_chunked_response(self):
         self.addCleanup(create_filter(8080, (
@@ -621,7 +611,7 @@ class TestCfSecurity(unittest.TestCase):
         wait_until_connectable(8080)
         wait_until_connectable(8081)
 
-        response = requests.request(
+        response = urllib3.PoolManager().request(
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
@@ -632,7 +622,7 @@ class TestCfSecurity(unittest.TestCase):
         )
         self.assertEqual('chunked', response.headers['Transfer-Encoding'])
         self.assertNotIn('content-length', response.headers)
-        self.assertEqual(response.content, b'-' * 10000)
+        self.assertEqual(response.data, b'-' * 10000)
 
     def test_https(self):
         self.addCleanup(create_filter(8080, (
@@ -645,15 +635,15 @@ class TestCfSecurity(unittest.TestCase):
         # but it does test that the filter can connect to a regular/real site
         # that we cannot have customised to make the tests pass. Plus,
         # www.google.com is extremely unlikely to go down
-        content = requests.request(
+        data = urllib3.PoolManager().request(
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
                 'x-cf-forwarded-url': 'https://www.google.com/',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
             },
-        ).content
-        self.assertIn(b'<title>Google</title>', content)
+        ).data
+        self.assertIn(b'<title>Google</title>', data)
 
     def test_https_origin_not_exist_returns_500(self):
         self.addCleanup(create_filter(8080, (
@@ -662,7 +652,7 @@ class TestCfSecurity(unittest.TestCase):
         )))
         wait_until_connectable(8080)
 
-        response = requests.request(
+        response = urllib3.PoolManager().request(
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
@@ -670,7 +660,7 @@ class TestCfSecurity(unittest.TestCase):
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
             },
         )
-        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.status, 500)
 
     def test_http_origin_not_exist_returns_500(self):
         self.addCleanup(create_filter(8080, (
@@ -679,7 +669,7 @@ class TestCfSecurity(unittest.TestCase):
         )))
         wait_until_connectable(8080)
 
-        response = requests.request(
+        response = urllib3.PoolManager().request(
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
@@ -687,7 +677,7 @@ class TestCfSecurity(unittest.TestCase):
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
             },
         )
-        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.status, 500)
 
     def test_missing_x_forwarded_for_returns_403_and_origin_not_called(self):
         # Origin not running: if an attempt was made to connect to it, we
@@ -698,14 +688,14 @@ class TestCfSecurity(unittest.TestCase):
         )))
         wait_until_connectable(8080)
 
-        status_code = requests.request(
+        status = urllib3.PoolManager().request(
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
                 'x-cf-forwarded-url': 'http://127.0.0.1:8081/',
             },
-        ).status_code
-        self.assertEqual(status_code, 403)
+        ).status
+        self.assertEqual(status, 403)
 
     def test_incorrect_x_forwarded_for_returns_403_and_origin_not_called(self):
         # Origin not running: if an attempt was made to connect to it, we
@@ -723,18 +713,18 @@ class TestCfSecurity(unittest.TestCase):
             '1.2.3.4',
             '',
         ]
-        status_codes = [
-            requests.request(
+        statuses = [
+            urllib3.PoolManager().request(
                 'GET',
                 url='http://127.0.0.1:8080/',
                 headers={
                     'x-cf-forwarded-url': 'http://127.0.0.1:8081/',
                     'x-forwarded-for': x_forwarded_for_header,
                 },
-            ).status_code
+            ).status
             for x_forwarded_for_header in x_forwarded_for_headers
         ]
-        self.assertEqual(status_codes, [403] * len(x_forwarded_for_headers))
+        self.assertEqual(statuses, [403] * len(x_forwarded_for_headers))
 
     def test_not_running_origin_returns_500(self):
         self.addCleanup(create_filter(8080, (
@@ -742,15 +732,15 @@ class TestCfSecurity(unittest.TestCase):
             ('ORIGIN_PROTO', 'http'),
         )))
         wait_until_connectable(8080)
-        status_code = requests.request(
+        status = urllib3.PoolManager().request(
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
                 'x-cf-forwarded-url': 'http://127.0.0.1:8081/',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
             },
-        ).status_code
-        self.assertEqual(status_code, 500)
+        ).status
+        self.assertEqual(status, 500)
 
 def create_filter(port, env=()):
     def stop():
