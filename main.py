@@ -91,7 +91,7 @@ def handle_request():
         forwarded_url = request.headers['X-CF-Forwarded-Url']
     except KeyError:
         logger.error('Missing X-CF-Forwarded-Url header')
-        return 'Missing X-CF-Forwarded-Url'
+        return render_access_denied('Unknown', 'Unknown')
 
     if forwarded_url.endswith('/automated-test-auth'):
         # apply basic auth with 401/Www-Authenticate header to this URL only
