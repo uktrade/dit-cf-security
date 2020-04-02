@@ -87,9 +87,9 @@ def basic_auth_check():
 
 @app.route('/', methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'])
 def handle_request():
-    forwarded_url = request.headers.get('X-CF-Forwarded-Url', None)
-
-    if not forwarded_url:
+    try:
+        forwarded_url = request.headers['X-CF-Forwarded-Url']
+    except KeyError:
         logger.error('Missing X-CF-Forwarded-Url header')
         return 'Missing X-CF-Forwarded-Url'
 
