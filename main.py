@@ -3,11 +3,13 @@ import sys
 import logging
 from ipaddress import ip_network, ip_address
 
+from utils import normalise_environment
+
 from flask import Flask, request, Response, render_template
 import urllib3
 
 app = Flask(__name__)
-env = os.environ
+env = normalise_environment(os.environ)
 
 # All requested URLs are eventually routed to to the same load balancer, which
 # uses the host header to route requests to the correct application. So as
