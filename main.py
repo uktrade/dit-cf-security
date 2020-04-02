@@ -83,9 +83,8 @@ def basic_auth_check():
     return 'ok'
 
 
-@app.route('/', defaults={'path': ''}, methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'])
-@app.route('/<path:path>', methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'])
-def handle_request(path):
+@app.route('/', methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'])
+def handle_request():
     forwarded_url = request.headers.get('X-CF-Forwarded-Url', None)
 
     if not forwarded_url:
