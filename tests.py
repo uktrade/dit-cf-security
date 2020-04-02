@@ -755,8 +755,11 @@ def create_filter(port, env=()):
             break
     process = subprocess.Popen(['bash', '-c', command.strip()], env={
         **os.environ,
+        'XFF_IP_INDEX': '-3',
         'ALLOWED_IPS': '1.2.3.4',
         'PORT': str(port),
+        'EMAIL': 'test@test.test',
+        'LOG_LEVEL': 'INFO',
         **dict(env),
     })
 

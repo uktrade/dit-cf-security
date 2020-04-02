@@ -7,14 +7,7 @@ from flask import Flask, request, Response, render_template
 import urllib3
 
 app = Flask(__name__)
-app.config['XFF_IP_INDEX'] = int(os.environ.get('IP_SAFELIST_XFF_IP_INDEX', '-3'))
-app.config['ALLOWED_IPS'] = os.environ.get('ALLOWED_IPS', '').split(',')
-app.config['ALLOWED_IP_RANGES'] = os.environ.get('ALLOWED_IP_RANGES', '').split(',')
-app.config['BASIC_AUTH_USERNAME'] = os.environ.get('BASIC_AUTH_USERNAME')
-app.config['BASIC_AUTH_PASSWORD'] = os.environ.get('BASIC_AUTH_PASSWORD')
-app.config['SHARED_SECRET'] = os.environ.get('SHARED_SECRET', '')
-app.config['EMAIL'] = os.environ.get('EMAIL', 'unspecified')
-app.config['LOG_LEVEL'] = os.environ.get('LOG_LEVEL', 'INFO')
+env = os.environ
 
 # All requested URLs are eventually routed to to the same load balancer, which
 # uses the host header to route requests to the correct application. So as
@@ -27,20 +20,16 @@ app.config['LOG_LEVEL'] = os.environ.get('LOG_LEVEL', 'INFO')
 # - we avoid requests going back through the CDN, which is good for both
 #   latency, and (hopefully) debuggability since there are fewer hops.
 PoolClass = \
-    urllib3.HTTPConnectionPool if os.environ['ORIGIN_PROTO'] == 'http' else \
+    urllib3.HTTPConnectionPool if env['ORIGIN_PROTO'] == 'http' else \
     urllib3.HTTPSConnectionPool
-http = PoolClass(os.environ['ORIGIN_HOSTNAME'], maxsize=1000)
+http = PoolClass(env['ORIGIN_HOSTNAME'], maxsize=1000)
 
-logging.basicConfig(stream=sys.stdout, level=app.config['LOG_LEVEL'])
+logging.basicConfig(stream=sys.stdout, level=env['LOG_LEVEL'])
 logger = logging.getLogger(__name__)
 
 
-FORWARDED_URL = 'X-CF-Forwarded-Url'
-
-
 def check_auth(username, password):
-    return username == app.config['BASIC_AUTH_USERNAME'] and password == app.config['BASIC_AUTH_PASSWORD']
-
+    return username == env['BASIC_AUTH_USERNAME'] and password == env['BASIC_AUTH_PASSWORD']
 
 
 def is_valid_ip(client_ip):
@@ -48,7 +37,7 @@ def is_valid_ip(client_ip):
     if not client_ip:
         return False
 
-    if client_ip in app.config['ALLOWED_IPS']:
+    if client_ip in env['ALLOWED_IPS']:
         return True
 
     # ip_addr = ip_address(client_ip)
@@ -63,7 +52,7 @@ def is_valid_ip(client_ip):
 def get_client_ip():
 
     try:
-        return request.headers["X-Forwarded-For"].split(',')[app.config['XFF_IP_INDEX']].strip()
+        return request.headers["X-Forwarded-For"].split(',')[int(env['XFF_IP_INDEX'])].strip()
     except (IndexError, KeyError):
         logger.debug(
             'X-Forwarded-For header is missing or does not '
@@ -76,7 +65,7 @@ def render_access_denied(client_ip, forwarded_url):
     return (render_template(
         'access-denied.html',
         client_ip=client_ip,
-        email=app.config['EMAIL'],
+        email=env['EMAIL'],
         forwarded_url=forwarded_url,
     ), 403)
 
@@ -97,11 +86,11 @@ def basic_auth_check():
 @app.route('/', defaults={'path': ''}, methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'])
 @app.route('/<path:path>', methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'])
 def handle_request(path):
-    forwarded_url = request.headers.get(FORWARDED_URL, None)
+    forwarded_url = request.headers.get('X-CF-Forwarded-Url', None)
 
     if not forwarded_url:
-        logger.error('Missing %s header', FORWARDED_URL)
-        return f'Missing {FORWARDED_URL}'
+        logger.error('Missing X-CF-Forwarded-Url header')
+        return 'Missing X-CF-Forwarded-Url'
 
     if forwarded_url.endswith('/automated-test-auth'):
         # apply basic auth with 401/Www-Authenticate header to this URL only
@@ -114,7 +103,7 @@ def handle_request(path):
     logger.debug(f'Incoming request: forwarded url: {forwarded_url}; method: {request.method}; headers: {request.headers}: cookies: {request.cookies}')   # noqa
 
     # Shared secret check
-    if app.config['SHARED_SECRET']:
+    if env.get('SHARED_SECRET'):
         if request.headers.get('X-Shared-Secret', '') != app.config['SHARED_SECRET']:
             logger.debug('Shared secret invalid')
             return 'Forbidden', 403
