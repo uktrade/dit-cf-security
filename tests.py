@@ -679,6 +679,24 @@ class TestCfSecurity(unittest.TestCase):
         )
         self.assertEqual(response.status, 500)
 
+    def test_missing_x_cf_forwarded_url_returns_403_and_origin_not_called(self):
+        # Origin not running: if an attempt was made to connect to it, we
+        # would get a 500
+        self.addCleanup(create_filter(8080, (
+            ('ORIGIN_HOSTNAME', 'localhost:8081'),
+            ('ORIGIN_PROTO', 'http'),
+        )))
+        wait_until_connectable(8080)
+
+        status = urllib3.PoolManager().request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
+            },
+        ).status
+        self.assertEqual(status, 403)
+
     def test_missing_x_forwarded_for_returns_403_and_origin_not_called(self):
         # Origin not running: if an attempt was made to connect to it, we
         # would get a 500
@@ -726,6 +744,499 @@ class TestCfSecurity(unittest.TestCase):
         ]
         self.assertEqual(statuses, [403] * len(x_forwarded_for_headers))
 
+    def test_x_forwarded_for_index_respected(self):
+        self.addCleanup(create_filter(8080, (
+            ('ORIGIN_HOSTNAME', 'localhost:8081'),
+            ('ORIGIN_PROTO', 'http'),
+            ('ROUTES__1__IP_DETERMINED_BY_X_FORWARDED_FOR_INDEX', '-2'),
+            ('ROUTES__1__IP_RANGES__1', '1.2.3.4/32'),
+            ('ROUTES__1__HOSTNAME_REGEX', r'^somehost\.com$'),
+        )))
+        self.addCleanup(create_origin(8081))
+        wait_until_connectable(8080)
+        wait_until_connectable(8081)
+
+        status = urllib3.PoolManager().request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-cf-forwarded-url': 'http://somehost.com/',
+                'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
+            },
+        ).status
+        self.assertEqual(status, 403)
+
+        status = urllib3.PoolManager().request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-cf-forwarded-url': 'http://somehost.com/',
+                'x-forwarded-for': '1.2.3.4, 1.1.1.1',
+            },
+        ).status
+        self.assertEqual(status, 200)
+
+    def test_host_not_matching_returns_403(self):
+        self.addCleanup(create_filter(8080, (
+            ('ORIGIN_HOSTNAME', 'localhost:8081'),
+            ('ORIGIN_PROTO', 'http'),
+            ('ROUTES__1__IP_DETERMINED_BY_X_FORWARDED_FOR_INDEX', '-3'),
+            ('ROUTES__1__IP_RANGES__1', '1.2.3.4/32'),
+            ('ROUTES__1__HOSTNAME_REGEX', r'^someotherhost\.com$'),
+        )))
+        self.addCleanup(create_origin(8081))
+        wait_until_connectable(8080)
+        wait_until_connectable(8081)
+
+        status = urllib3.PoolManager().request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-cf-forwarded-url': 'http://somehost.com/',
+                'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
+            },
+        ).status
+        self.assertEqual(status, 403)
+
+    def test_host_matching_returns_200(self):
+        self.addCleanup(create_filter(8080, (
+            ('ORIGIN_HOSTNAME', 'localhost:8081'),
+            ('ORIGIN_PROTO', 'http'),
+            ('ROUTES__1__IP_DETERMINED_BY_X_FORWARDED_FOR_INDEX', '-3'),
+            ('ROUTES__1__IP_RANGES__1', '1.2.3.4/32'),
+            ('ROUTES__1__HOSTNAME_REGEX', r'^somehost\.com$'),
+        )))
+        self.addCleanup(create_origin(8081))
+        wait_until_connectable(8080)
+        wait_until_connectable(8081)
+
+        status = urllib3.PoolManager().request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-cf-forwarded-url': 'http://somehost.com/',
+                'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
+            },
+        ).status
+        self.assertEqual(status, 200)
+
+    def test_host_matching_second_returns_200(self):
+        self.addCleanup(create_filter(8080, (
+            ('ORIGIN_HOSTNAME', 'localhost:8081'),
+            ('ORIGIN_PROTO', 'http'),
+            ('ROUTES__1__IP_DETERMINED_BY_X_FORWARDED_FOR_INDEX', '-3'),
+            ('ROUTES__1__IP_RANGES__1', '1.2.3.4/32'),
+            ('ROUTES__1__HOSTNAME_REGEX', r'^someother\.com$'),
+            ('ROUTES__2__IP_DETERMINED_BY_X_FORWARDED_FOR_INDEX', '-3'),
+            ('ROUTES__2__IP_RANGES__1', '1.2.3.4/32'),
+            ('ROUTES__2__HOSTNAME_REGEX', r'^somehost\.com$'),
+        )))
+        self.addCleanup(create_origin(8081))
+        wait_until_connectable(8080)
+        wait_until_connectable(8081)
+
+        status = urllib3.PoolManager().request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-cf-forwarded-url': 'http://somehost.com/',
+                'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
+            },
+        ).status
+        self.assertEqual(status, 200)
+
+    def test_ip_matching_cidr_respected(self):
+        self.addCleanup(create_filter(8080, (
+            ('ORIGIN_HOSTNAME', 'localhost:8081'),
+            ('ORIGIN_PROTO', 'http'),
+            ('ROUTES__1__IP_DETERMINED_BY_X_FORWARDED_FOR_INDEX', '-3'),
+            ('ROUTES__1__IP_RANGES__1', '1.2.3.0/24'),
+            ('ROUTES__1__HOSTNAME_REGEX', r'^somehost\.com$'),
+        )))
+        self.addCleanup(create_origin(8081))
+        wait_until_connectable(8080)
+        wait_until_connectable(8081)
+
+        status = urllib3.PoolManager().request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-cf-forwarded-url': 'http://somehost.com/',
+                'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
+            },
+        ).status
+        self.assertEqual(status, 200)
+
+        status = urllib3.PoolManager().request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-cf-forwarded-url': 'http://somehost.com/',
+                'x-forwarded-for': '1.2.3.5, 1.1.1.1, 1.1.1.1',
+            },
+        ).status
+        self.assertEqual(status, 200)
+
+        status = urllib3.PoolManager().request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-cf-forwarded-url': 'http://somehost.com/',
+                'x-forwarded-for': '1.2.4.5, 1.1.1.1, 1.1.1.1',
+            },
+        ).status
+        self.assertEqual(status, 403)
+
+    def test_ip_matching_second_returns_200(self):
+        self.addCleanup(create_filter(8080, (
+            ('ORIGIN_HOSTNAME', 'localhost:8081'),
+            ('ORIGIN_PROTO', 'http'),
+            ('ROUTES__1__IP_DETERMINED_BY_X_FORWARDED_FOR_INDEX', '-3'),
+            ('ROUTES__1__IP_RANGES__1', '1.2.3.4/32'),
+            ('ROUTES__1__HOSTNAME_REGEX', r'^somehost\.com$'),
+            ('ROUTES__2__IP_DETERMINED_BY_X_FORWARDED_FOR_INDEX', '-2'),
+            ('ROUTES__2__IP_RANGES__1', '4.4.4.4/32'),
+            ('ROUTES__2__HOSTNAME_REGEX', r'^somehost\.com$'),
+        )))
+        self.addCleanup(create_origin(8081))
+        wait_until_connectable(8080)
+        wait_until_connectable(8081)
+
+        status = urllib3.PoolManager().request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-cf-forwarded-url': 'http://somehost.com/',
+                'x-forwarded-for': '4.4.4.4, 1.1.1.1',
+            },
+        ).status
+        self.assertEqual(status, 200)
+
+    def test_shared_secret_header_respected(self):
+        self.addCleanup(create_filter(8080, (
+            ('ORIGIN_HOSTNAME', 'localhost:8081'),
+            ('ORIGIN_PROTO', 'http'),
+            ('ROUTES__1__IP_DETERMINED_BY_X_FORWARDED_FOR_INDEX', '-3'),
+            ('ROUTES__1__IP_RANGES__1', '1.2.3.4/32'),
+            ('ROUTES__1__HOSTNAME_REGEX', r'^somehost\.com$'),
+            ('ROUTES__1__SHARED_SECRET_HEADER__1__NAME', 'x-cdn-secret'),
+            ('ROUTES__1__SHARED_SECRET_HEADER__1__VALUE', 'my-secret'),
+        )))
+        self.addCleanup(create_origin(8081))
+        wait_until_connectable(8080)
+        wait_until_connectable(8081)
+
+        status = urllib3.PoolManager().request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-cf-forwarded-url': 'http://somehost.com/',
+                'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
+                'x-cdn-secret': 'not-my-secret',
+            },
+        ).status
+        self.assertEqual(status, 403)
+
+        status = urllib3.PoolManager().request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-cf-forwarded-url': 'http://somehost.com/',
+                'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
+                'x-cdn-secret': 'my-secret',
+            },
+        ).status
+        self.assertEqual(status, 200)
+
+    def test_second_shared_secret_header_respected(self):
+        self.addCleanup(create_filter(8080, (
+            ('ORIGIN_HOSTNAME', 'localhost:8081'),
+            ('ORIGIN_PROTO', 'http'),
+            ('ROUTES__1__IP_DETERMINED_BY_X_FORWARDED_FOR_INDEX', '-3'),
+            ('ROUTES__1__IP_RANGES__1', '1.2.3.4/32'),
+            ('ROUTES__1__HOSTNAME_REGEX', r'^somehost\.com$'),
+            ('ROUTES__1__SHARED_SECRET_HEADER__1__NAME', 'x-cdn-secret'),
+            ('ROUTES__1__SHARED_SECRET_HEADER__1__VALUE', 'my-secret'),
+            ('ROUTES__1__SHARED_SECRET_HEADER__2__NAME', 'x-cdn-secret'),
+            ('ROUTES__1__SHARED_SECRET_HEADER__2__VALUE', 'my-other-secret'),
+        )))
+        self.addCleanup(create_origin(8081))
+        wait_until_connectable(8080)
+        wait_until_connectable(8081)
+
+        status = urllib3.PoolManager().request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-cf-forwarded-url': 'http://somehost.com/',
+                'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
+                'x-cdn-secret': 'my-mangos',
+            },
+        ).status
+        self.assertEqual(status, 403)
+
+        status = urllib3.PoolManager().request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-cf-forwarded-url': 'http://somehost.com/',
+                'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
+                'x-cdn-secret': 'my-other-secret',
+            },
+        ).status
+        self.assertEqual(status, 200)
+
+    def test_shared_secret_second_route_respected(self):
+        self.addCleanup(create_filter(8080, (
+            ('ORIGIN_HOSTNAME', 'localhost:8081'),
+            ('ORIGIN_PROTO', 'http'),
+            ('ROUTES__1__IP_DETERMINED_BY_X_FORWARDED_FOR_INDEX', '-3'),
+            ('ROUTES__1__IP_RANGES__1', '1.2.3.4/32'),
+            ('ROUTES__1__HOSTNAME_REGEX', r'^somehost\.com$'),
+            ('ROUTES__1__SHARED_SECRET_HEADER__1__NAME', 'x-cdn-secret'),
+            ('ROUTES__1__SHARED_SECRET_HEADER__1__VALUE', 'my-secret'),
+            ('ROUTES__2__IP_DETERMINED_BY_X_FORWARDED_FOR_INDEX', '-3'),
+            ('ROUTES__2__IP_RANGES__1', '1.2.3.4/32'),
+            ('ROUTES__2__HOSTNAME_REGEX', r'^somehost\.com$'),
+            ('ROUTES__2__SHARED_SECRET_HEADER__1__NAME', 'x-cdn-secret'),
+            ('ROUTES__2__SHARED_SECRET_HEADER__1__VALUE', 'my-other-secret'),
+        )))
+        self.addCleanup(create_origin(8081))
+        wait_until_connectable(8080)
+        wait_until_connectable(8081)
+
+        status = urllib3.PoolManager().request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-cf-forwarded-url': 'http://somehost.com/',
+                'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
+                'x-cdn-secret': 'my-mangos',
+            },
+        ).status
+        self.assertEqual(status, 403)
+
+        status = urllib3.PoolManager().request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-cf-forwarded-url': 'http://somehost.com/',
+                'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
+                'x-cdn-secret': 'my-other-secret',
+            },
+        ).status
+        self.assertEqual(status, 200)
+
+    def test_shared_secret_header_removed(self):
+        self.addCleanup(create_filter(8080, (
+            ('ORIGIN_HOSTNAME', 'localhost:8081'),
+            ('ORIGIN_PROTO', 'http'),
+            ('ROUTES__1__IP_DETERMINED_BY_X_FORWARDED_FOR_INDEX', '-3'),
+            ('ROUTES__1__IP_RANGES__1', '1.2.3.4/32'),
+            ('ROUTES__1__HOSTNAME_REGEX', r'^somehost\.com$'),
+            ('ROUTES__1__SHARED_SECRET_HEADER__1__NAME', 'x-cdn-secret'),
+            ('ROUTES__1__SHARED_SECRET_HEADER__1__VALUE', 'my-secret'),
+            ('ROUTES__2__IP_DETERMINED_BY_X_FORWARDED_FOR_INDEX', '-3'),
+            ('ROUTES__2__IP_RANGES__1', '1.2.3.4/32'),
+            ('ROUTES__2__HOSTNAME_REGEX', r'^somehost\.com$'),
+            ('ROUTES__2__SHARED_SECRET_HEADER__1__NAME', 'x-shared-secret'),
+            ('ROUTES__2__SHARED_SECRET_HEADER__1__VALUE', 'my-other-secret'),
+        )))
+        self.addCleanup(create_origin(8081))
+        wait_until_connectable(8080)
+        wait_until_connectable(8081)
+
+        response = urllib3.PoolManager().request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-cf-forwarded-url': 'http://somehost.com/',
+                'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
+                'x-cdn-secret': 'my-mangos',
+                'x-shared-secret': 'my-other-secret',
+            },
+        )
+        self.assertEqual(response.status, 200)
+        self.assertNotIn('x-echo-header-x-shared-secret', response.headers)
+        self.assertNotIn('x-echo-header-my-other-secret', response.headers)
+
+    def test_basic_auth_header_respected(self):
+        self.addCleanup(create_filter(8080, (
+            ('ORIGIN_HOSTNAME', 'localhost:8081'),
+            ('ORIGIN_PROTO', 'http'),
+            ('ROUTES__1__IP_DETERMINED_BY_X_FORWARDED_FOR_INDEX', '-3'),
+            ('ROUTES__1__IP_RANGES__1', '1.2.3.4/32'),
+            ('ROUTES__1__HOSTNAME_REGEX', r'^somehost\.com$'),
+            ('ROUTES__1__BASIC_AUTH__1__USERNAME', 'my-user'),
+            ('ROUTES__1__BASIC_AUTH__1__PASSWORD', 'my-secret'),
+            ('ROUTES__1__BASIC_AUTH__1__AUTHENTICATE_PATH', '/__some_path'),
+        )))
+        self.addCleanup(create_origin(8081))
+        wait_until_connectable(8080)
+        wait_until_connectable(8081)
+
+        status = urllib3.PoolManager().request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-cf-forwarded-url': 'http://somehost.com/',
+                'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
+                'authorization': 'Basic ' + base64.b64encode(b'my-user:my-secret').decode('utf-8'),
+            },
+        ).status
+        self.assertEqual(status, 200)
+
+        status = urllib3.PoolManager().request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-cf-forwarded-url': 'http://somehost.com/',
+                'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
+                'authorization': 'Basic ' + base64.b64encode(b'my-user:my-mangos').decode('utf-8'),
+            },
+        ).status
+        self.assertEqual(status, 403)
+
+        response = urllib3.PoolManager().request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-cf-forwarded-url': 'http://somehost.com/__some_path',
+                'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
+                'authorization': 'Basic ' + base64.b64encode(b'my-user:my-mangos').decode('utf-8'),
+            },
+        )
+        self.assertEqual(response.status, 401)
+        self.assertEqual(response.headers['WWW-Authenticate'], 'Basic realm="Login Required"')
+
+        response = urllib3.PoolManager().request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-cf-forwarded-url': 'http://somehost.com/__some_path',
+                'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
+                'authorization': 'Basic ' + base64.b64encode(b'my-user:my-secret').decode('utf-8'),
+            },
+        )
+        self.assertEqual(response.status, 200)
+        self.assertNotIn('WWW-Authenticate', response.headers)
+
+    def test_basic_auth_header_second_route_respected(self):
+        self.addCleanup(create_filter(8080, (
+            ('ORIGIN_HOSTNAME', 'localhost:8081'),
+            ('ORIGIN_PROTO', 'http'),
+            ('ROUTES__1__IP_DETERMINED_BY_X_FORWARDED_FOR_INDEX', '-3'),
+            ('ROUTES__1__IP_RANGES__1', '1.2.3.4/32'),
+            ('ROUTES__1__HOSTNAME_REGEX', r'^somehost\.com$'),
+            ('ROUTES__1__BASIC_AUTH__1__USERNAME', 'my-user'),
+            ('ROUTES__1__BASIC_AUTH__1__PASSWORD', 'my-secret'),
+            ('ROUTES__1__BASIC_AUTH__1__AUTHENTICATE_PATH', '/__some_path'),
+            ('ROUTES__1__BASIC_AUTH__2__USERNAME', 'my-other-user'),
+            ('ROUTES__1__BASIC_AUTH__2__PASSWORD', 'my-other-secret'),
+            ('ROUTES__1__BASIC_AUTH__2__AUTHENTICATE_PATH', '/__some_path'),
+        )))
+        self.addCleanup(create_origin(8081))
+        wait_until_connectable(8080)
+        wait_until_connectable(8081)
+
+        status = urllib3.PoolManager().request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-cf-forwarded-url': 'http://somehost.com/',
+                'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
+                'authorization': 'Basic ' + base64.b64encode(b'my-user:my-mangos').decode('utf-8'),
+            },
+        ).status
+        self.assertEqual(status, 403)
+
+        status = urllib3.PoolManager().request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-cf-forwarded-url': 'http://somehost.com/',
+                'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
+                'authorization': 'Basic ' + base64.b64encode(b'my-other-user:my-other-mangos').decode('utf-8'),
+            },
+        ).status
+        self.assertEqual(status, 403)
+
+        status = urllib3.PoolManager().request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-cf-forwarded-url': 'http://somehost.com/',
+                'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
+                'authorization': 'Basic ' + base64.b64encode(b'my-other-user:my-other-secret').decode('utf-8'),
+            },
+        ).status
+        self.assertEqual(status, 200)
+
+    def test_basic_auth_second_route_respected(self):
+        self.addCleanup(create_filter(8080, (
+            ('ORIGIN_HOSTNAME', 'localhost:8081'),
+            ('ORIGIN_PROTO', 'http'),
+            ('ROUTES__1__IP_DETERMINED_BY_X_FORWARDED_FOR_INDEX', '-3'),
+            ('ROUTES__1__IP_RANGES__1', '1.2.3.4/32'),
+            ('ROUTES__1__HOSTNAME_REGEX', r'^somehost\.com$'),
+            ('ROUTES__1__BASIC_AUTH__1__USERNAME', 'my-user'),
+            ('ROUTES__1__BASIC_AUTH__1__PASSWORD', 'my-secret'),
+            ('ROUTES__1__BASIC_AUTH__1__AUTHENTICATE_PATH', '/__some_path'),
+            ('ROUTES__2__IP_DETERMINED_BY_X_FORWARDED_FOR_INDEX', '-3'),
+            ('ROUTES__2__IP_RANGES__1', '1.2.3.4/32'),
+            ('ROUTES__2__HOSTNAME_REGEX', r'^somehost\.com$'),
+            ('ROUTES__2__BASIC_AUTH__1__USERNAME', 'my-other-user'),
+            ('ROUTES__2__BASIC_AUTH__1__PASSWORD', 'my-other-secret'),
+            ('ROUTES__2__BASIC_AUTH__1__AUTHENTICATE_PATH', '/__some_path'),
+        )))
+        self.addCleanup(create_origin(8081))
+        wait_until_connectable(8080)
+        wait_until_connectable(8081)
+
+        status = urllib3.PoolManager().request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-cf-forwarded-url': 'http://somehost.com/',
+                'x-forwarded-for': '5.5.5.5, 1.1.1.1, 1.1.1.1',
+                'authorization': 'Basic ' + base64.b64encode(b'my-user:my-secret').decode('utf-8'),
+            },
+        ).status
+        self.assertEqual(status, 403)
+
+        status = urllib3.PoolManager().request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-cf-forwarded-url': 'http://somehost.com/',
+                'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
+                'authorization': 'Basic ' + base64.b64encode(b'my-user:my-mangos').decode('utf-8'),
+            },
+        ).status
+        self.assertEqual(status, 403)
+
+        status = urllib3.PoolManager().request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-cf-forwarded-url': 'http://somehost.com/',
+                'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
+                'authorization': 'Basic ' + base64.b64encode(b'my-other-user:my-other-mangos').decode('utf-8'),
+            },
+        ).status
+        self.assertEqual(status, 403)
+
+        status = urllib3.PoolManager().request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-cf-forwarded-url': 'http://somehost.com/',
+                'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
+                'authorization': 'Basic ' + base64.b64encode(b'my-other-user:my-other-secret').decode('utf-8'),
+            },
+        ).status
+        self.assertEqual(status, 200)
+
     def test_not_running_origin_returns_500(self):
         self.addCleanup(create_filter(8080, (
             ('ORIGIN_HOSTNAME', 'localhost:8081'),
@@ -755,11 +1266,12 @@ def create_filter(port, env=()):
             break
     process = subprocess.Popen(['bash', '-c', command.strip()], env={
         **os.environ,
-        'XFF_IP_INDEX': '-3',
-        'ALLOWED_IPS': '1.2.3.4',
+        'ROUTES__1__IP_DETERMINED_BY_X_FORWARDED_FOR_INDEX': '-3',
+        'ROUTES__1__HOSTNAME_REGEX': '.*',
+        'ROUTES__1__IP_RANGES__1': '1.2.3.4/32',
         'PORT': str(port),
         'EMAIL': 'test@test.test',
-        'LOG_LEVEL': 'INFO',
+        'LOG_LEVEL': 'DEBUG',
         **dict(env),
     })
 

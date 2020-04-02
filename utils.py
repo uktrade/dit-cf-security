@@ -1,6 +1,16 @@
 import itertools
 
 
+def constant_time_is_equal(a, b):
+    if len(a) != len(b):
+        return False
+
+    result = 0
+    for x, y in zip(a, b):
+        result |= x ^ y
+    return result == 0
+
+
 def normalise_environment(key_values):
     ''' Converts denormalised dict of (string -> string) pairs, where the first string
         is treated as a path into a nested list/dictionary structure
