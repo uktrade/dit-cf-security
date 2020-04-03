@@ -68,6 +68,7 @@ def handle_request():
         return render_access_denied('Unknown', forwarded_url)
 
     logger.debug('[%s] X-Forwarded-For: %s', request_id, x_forwarded_for)
+    client_ip = 'Unknown'
 
     # A request is only rejected only if it matches no routes
     for route in env['ROUTES']:
@@ -134,7 +135,7 @@ def handle_request():
         break
     else:
         logger.error('[%s] No matching route', request_id)
-        return render_access_denied('Unknown', forwarded_url)
+        return render_access_denied(client_ip, forwarded_url)
 
     logger.info('[%s] Making request to origin', request_id)
 
