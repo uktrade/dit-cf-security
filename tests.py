@@ -756,15 +756,17 @@ class TestCfSecurity(unittest.TestCase):
         wait_until_connectable(8080)
         wait_until_connectable(8081)
 
-        status = urllib3.PoolManager().request(
+        response = urllib3.PoolManager().request(
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
                 'x-cf-forwarded-url': 'http://somehost.com/',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
             },
-        ).status
-        self.assertEqual(status, 403)
+        )
+        self.assertEqual(response.status, 403)
+        self.assertIn(b'>1.1.1.1<', response.data)
+        self.assertIn(b'>http://somehost.com/<', response.data)
 
         status = urllib3.PoolManager().request(
             'GET',
