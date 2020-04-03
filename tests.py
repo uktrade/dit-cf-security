@@ -932,6 +932,16 @@ class TestCfSecurity(unittest.TestCase):
             headers={
                 'x-cf-forwarded-url': 'http://somehost.com/',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
+            },
+        ).status
+        self.assertEqual(status, 403)
+
+        status = urllib3.PoolManager().request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-cf-forwarded-url': 'http://somehost.com/',
+                'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
                 'x-cdn-secret': 'not-my-secret',
             },
         ).status

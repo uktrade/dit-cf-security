@@ -119,7 +119,12 @@ def handle_request():
         # Must pass a shared secret header check, if specified
         shared_secrets = route.get('SHARED_SECRET_HEADER', [])
         for shared_secret in shared_secrets:
-            if constant_time_is_equal(shared_secret['VALUE'].encode(), request.headers[shared_secret['NAME']].encode()):
+            try:
+                shared_secret_value = request.headers[shared_secret['NAME']]
+            except KeyError:
+                continue
+
+            if constant_time_is_equal(shared_secret['VALUE'].encode(), shared_secret_value.encode()):
                 break
         else:
             if shared_secrets:
