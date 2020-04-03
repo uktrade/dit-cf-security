@@ -1,20 +1,19 @@
 import os
+import re
 import sys
 import logging
-from ipaddress import ip_network, ip_address
+from ipaddress import IPv4Network, IPv4Address
+import urllib.parse
+import string
+
+from utils import constant_time_is_equal, normalise_environment
 
 from flask import Flask, request, Response, render_template
+from random import choices
 import urllib3
 
 app = Flask(__name__)
-app.config['XFF_IP_INDEX'] = int(os.environ.get('IP_SAFELIST_XFF_IP_INDEX', '-3'))
-app.config['ALLOWED_IPS'] = os.environ.get('ALLOWED_IPS', '').split(',')
-app.config['ALLOWED_IP_RANGES'] = os.environ.get('ALLOWED_IP_RANGES', '').split(',')
-app.config['BASIC_AUTH_USERNAME'] = os.environ.get('BASIC_AUTH_USERNAME')
-app.config['BASIC_AUTH_PASSWORD'] = os.environ.get('BASIC_AUTH_PASSWORD')
-app.config['SHARED_SECRET'] = os.environ.get('SHARED_SECRET', '')
-app.config['EMAIL'] = os.environ.get('EMAIL', 'unspecified')
-app.config['LOG_LEVEL'] = os.environ.get('LOG_LEVEL', 'INFO')
+env = normalise_environment(os.environ)
 
 # All requested URLs are eventually routed to to the same load balancer, which
 # uses the host header to route requests to the correct application. So as
@@ -27,106 +26,112 @@ app.config['LOG_LEVEL'] = os.environ.get('LOG_LEVEL', 'INFO')
 # - we avoid requests going back through the CDN, which is good for both
 #   latency, and (hopefully) debuggability since there are fewer hops.
 PoolClass = \
-    urllib3.HTTPConnectionPool if os.environ['ORIGIN_PROTO'] == 'http' else \
+    urllib3.HTTPConnectionPool if env['ORIGIN_PROTO'] == 'http' else \
     urllib3.HTTPSConnectionPool
-http = PoolClass(os.environ['ORIGIN_HOSTNAME'], maxsize=1000)
+http = PoolClass(env['ORIGIN_HOSTNAME'], maxsize=1000)
 
-logging.basicConfig(stream=sys.stdout, level=app.config['LOG_LEVEL'])
+logging.basicConfig(stream=sys.stdout, level=env['LOG_LEVEL'])
 logger = logging.getLogger(__name__)
 
-
-FORWARDED_URL = 'X-CF-Forwarded-Url'
-
-
-def check_auth(username, password):
-    return username == app.config['BASIC_AUTH_USERNAME'] and password == app.config['BASIC_AUTH_PASSWORD']
-
-
-
-def is_valid_ip(client_ip):
-
-    if not client_ip:
-        return False
-
-    if client_ip in app.config['ALLOWED_IPS']:
-        return True
-
-    # ip_addr = ip_address(client_ip)
-    # for cidr in app.config['ALLOWED_IP_RANGES']:
-    #     if ip_addr in ip_network(cidr):
-    #         return True
-
-    return False
-
-
-
-def get_client_ip():
-
-    try:
-        return request.headers["X-Forwarded-For"].split(',')[app.config['XFF_IP_INDEX']].strip()
-    except (IndexError, KeyError):
-        logger.debug(
-            'X-Forwarded-For header is missing or does not '
-            'contain enough elements to determine the '
-            'client\'s ip')
-        return None
+request_id_alphabet = string.ascii_letters + string.digits
 
 
 def render_access_denied(client_ip, forwarded_url):
     return (render_template(
         'access-denied.html',
         client_ip=client_ip,
-        email=app.config['EMAIL'],
+        email=env['EMAIL'],
         forwarded_url=forwarded_url,
     ), 403)
 
 
-def basic_auth_check():
-    auth = request.authorization
+@app.route('/', methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'])
+def handle_request():
+    request_id = ''.join(choices(request_id_alphabet, k=8))
+    logger.info('[%s] Start', request_id)
 
-    if not auth or not check_auth(auth.username, auth.password):
-        logger.debug('requiring basic auth')
-        return Response(
-            'Could not verify your access level for that URL.\n'
-            'You have to login with proper credentials', 401,
-            {'WWW-Authenticate': 'Basic realm="Login Required"'})
+    # Must have X-CF-Forwarded-Url to match route
+    try:
+        forwarded_url = request.headers['X-CF-Forwarded-Url']
+    except KeyError:
+        logger.error('[%s] Missing X-CF-Forwarded-Url header', request_id)
+        return render_access_denied('Unknown', 'Unknown')
 
-    return 'ok'
+    logger.info('[%s] Forwarded URL: %s', request_id, forwarded_url)
+    parsed_url = urllib.parse.urlsplit(forwarded_url)
 
+    # Find x-forwarded-for
+    try:
+        x_forwarded_for = request.headers['X-Forwarded-For']
+    except KeyError:
+        logger.error('[%s] X-Forwarded-For header is missing', request_id)
+        return render_access_denied('Unknown', forwarded_url)
 
-@app.route('/', defaults={'path': ''}, methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'])
-@app.route('/<path:path>', methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'])
-def handle_request(path):
-    forwarded_url = request.headers.get(FORWARDED_URL, None)
+    logger.debug('[%s] X-Forwarded-For: %s', request_id, x_forwarded_for)
 
-    if not forwarded_url:
-        logger.error('Missing %s header', FORWARDED_URL)
-        return f'Missing {FORWARDED_URL}'
+    # A request is only rejected only if it matches no routes
+    for route in env['ROUTES']:
+        if not re.match(route['HOSTNAME_REGEX'], parsed_url.hostname):
+            continue
 
-    if forwarded_url.endswith('/automated-test-auth'):
-        # apply basic auth with 401/Www-Authenticate header to this URL only
-        return basic_auth_check()
+        logger.debug('[%s] Host matches %s', request_id, route['HOSTNAME_REGEX'])
 
-    client_ip = get_client_ip()
+        try:
+            client_ip = x_forwarded_for.split(',')[int(route['IP_DETERMINED_BY_X_FORWARDED_FOR_INDEX'])].strip()
+        except IndexError:
+            logger.debug('[%s] Not enough addresses in x-forwarded-for %s', request_id, x_forwarded_for)
+            continue
 
-    logger.debug('client ip: %s', client_ip)
+        logger.debug('[%s] Trusting that the client has IP %s', request_id, client_ip)
 
-    logger.debug(f'Incoming request: forwarded url: {forwarded_url}; method: {request.method}; headers: {request.headers}: cookies: {request.cookies}')   # noqa
+        # The client IP must be in an allowed range, which can be 0.0.0.0/0
+        if not any(
+                IPv4Address(client_ip) in IPv4Network(ip_range) for ip_range in route['IP_RANGES']
+        ):
+            logger.debug('[%s] IP address %s does not match range', request_id, client_ip)
+            continue
 
-    # Shared secret check
-    if app.config['SHARED_SECRET']:
-        if request.headers.get('X-Shared-Secret', '') != app.config['SHARED_SECRET']:
-            logger.debug('Shared secret invalid')
-            return 'Forbidden', 403
+        # Must pass a basic auth check, if specified
+        basic_auths = route.get('BASIC_AUTH', [])
+        for basic_auth in basic_auths:
+            basic_auth_ok = (
+                request.authorization and
+                constant_time_is_equal(basic_auth['USERNAME'].encode(), request.authorization.username.encode()) and 
+                constant_time_is_equal(basic_auth['PASSWORD'].encode(), request.authorization.password.encode())
+            )
+            should_request_auth = (
+                parsed_url.path == basic_auth['AUTHENTICATE_PATH'] and
+                not basic_auth_ok
+            )
+            if should_request_auth:
+                return Response(
+                    'Could not verify your access level for that URL.\n'
+                    'You have to login with proper credentials', 401,
+                    {'WWW-Authenticate': 'Basic realm="Login Required"'})
+            if basic_auth_ok:
+                logger.debug('[%s] Matches basic auth %s', request_id, basic_auth['USERNAME'])
+                break
+        else:
+            if basic_auths:
+                logger.debug('[%s] Basic auth failed', request_id)
+                continue
 
-    # IP and basic auth
-    if not client_ip or not is_valid_ip(client_ip):
-        logger.debug('invalid client ip: %s', client_ip)
-        auth = request.authorization
+        # Must pass a shared secret header check, if specified
+        shared_secrets = route.get('SHARED_SECRET_HEADER', [])
+        for shared_secret in shared_secrets:
+            if constant_time_is_equal(shared_secret['VALUE'].encode(), request.headers[shared_secret['NAME']].encode()):
+                break
+        else:
+            if shared_secrets:
+                logger.debug('[%s] Shared secret check failed', request_id)
+                continue
 
-        if not auth or not check_auth(auth.username, auth.password):
-            logger.debug('requiring basic auth')
-            return render_access_denied(client_ip, forwarded_url)
+        break
+    else:
+        logger.error('[%s] No matching route', request_id)
+        return render_access_denied('Unknown', forwarded_url)
+
+    logger.info('[%s] Making request to origin', request_id)
 
     def downstream_data():
         while True:
@@ -135,22 +140,29 @@ def handle_request(path):
                 break
             yield contents
 
+    headers_to_remove = tuple(set(
+        shared_secret_header['NAME'].lower()
+        for route in env['ROUTES']
+        for shared_secret_header in route.get('SHARED_SECRET_HEADER', [])
+    )) + ('host', 'x-cf-forwarded-url', 'connection')
+
     origin_response = http.request(
         request.method,
         forwarded_url,
         headers={
             k: v for k, v in request.headers
-            if k not in ('Host', 'X-Cf-Forwarded-Url', 'Connection')
+            if k.lower() not in headers_to_remove
         },
         preload_content=False,
         redirect=False,
         assert_same_host=False,
         body=downstream_data(),
     )
+    logger.info('[%s] Origin response status: %s', request_id, origin_response.status)
 
-    logger.debug(f'Forwarding request to app: {forwarded_url}; method: {request.method}; headers: {origin_response.headers}')  # noqa
-
-    logger.debug(f'Response from app: status: {origin_response.status}; headers: {origin_response.headers}')   # noqa
+    def release_conn():
+        origin_response.release_conn()
+        logger.info('[%s] End', request_id)
 
     downstream_response = Response(
         origin_response.stream(65536, decode_content=False),
@@ -161,5 +173,8 @@ def handle_request(path):
         ],
     )
     downstream_response.autocorrect_location_header = False
-    downstream_response.call_on_close(origin_response.release_conn)
+    downstream_response.call_on_close(release_conn)
+
+    logger.info('[%s] Starting response to client', request_id)
+
     return downstream_response

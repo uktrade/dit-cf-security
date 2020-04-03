@@ -5,3 +5,4 @@ concurrency = multiprocessing
 include =
 	main.py
 	tests.py
+	utils.py
