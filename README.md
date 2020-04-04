@@ -7,7 +7,7 @@ A configurable route service that allows access to applications based on combina
 - shared secret in an HTTP header [passed from a CDN],
 - requested host name.
 
-All requests are routed to the IP address(es) of a single host that should resolve to the Cloud Foundry router. This is to support persistent onward connections, and to avoid routing requests back through a CDN.
+All requests are routed to the IP address(es) of a single host that should resolve to the Cloud Foundry router. This is to support persistent onward connections, to avoid routing requests back through a CDN, and to avoid routing requests to arbitrary targets on the internet as part of a defense-in-depth/least-privilege strategy.
 
 The service is configured with a number of _routes_. For each route, multiple allowed shared secret and basic auth credentials are supported to allow for credential rotation. These routes can match Cloud Foundry routes, but they don't have to; for example to allow the same basic auth credentials across domains.
 

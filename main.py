@@ -24,7 +24,9 @@ env = normalise_environment(os.environ)
 # - we allow onward persistant connections to the load balancer that are
 #   reused for all requests;
 # - we avoid requests going back through the CDN, which is good for both
-#   latency, and (hopefully) debuggability since there are fewer hops.
+#   latency, and (hopefully) debuggability since there are fewer hops;
+# - we avoid routing requests to arbitrary targets on the internet as part of
+#   a defense-in-depth/least-privilege strategy.
 PoolClass = \
     urllib3.HTTPConnectionPool if env['ORIGIN_PROTO'] == 'http' else \
     urllib3.HTTPSConnectionPool
