@@ -1133,7 +1133,7 @@ class TestCfSecurity(unittest.TestCase):
         self.assertEqual(response.status, 200)
         self.assertNotIn('WWW-Authenticate', response.headers)
 
-    def test_basic_auth_header_second_route_respected(self):
+    def test_basic_auth_second_cred_set_respected(self):
         self.addCleanup(create_filter(8080, (
             ('ORIGIN_HOSTNAME', 'localhost:8081'),
             ('ORIGIN_PROTO', 'http'),
