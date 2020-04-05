@@ -124,18 +124,16 @@ def handle_request():
 
         # Must pass a shared secret header check, if specified
         shared_secrets = route.get('SHARED_SECRET_HEADER', [])
-        for shared_secret in shared_secrets:
-            try:
-                shared_secret_value = request.headers[shared_secret['NAME']]
-            except KeyError:
-                continue
-
-            if constant_time_is_equal(shared_secret['VALUE'].encode(), shared_secret_value.encode()):
-                break
-        else:
-            if shared_secrets:
-                logger.debug('[%s] Shared secret check failed', request_id)
-                continue
+        shared_secrets_ok = [
+            (
+                shared_secret['NAME'] in request.headers
+                and constant_time_is_equal(shared_secret['VALUE'].encode(), request.headers[shared_secret['NAME']].encode())
+            )
+            for shared_secret in shared_secrets
+        ]
+        if shared_secrets and not any(shared_secrets_ok):
+            logger.debug('[%s] Shared secret check failed', request_id)
+            continue
 
         break
     else:
