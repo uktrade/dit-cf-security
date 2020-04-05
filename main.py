@@ -119,7 +119,7 @@ def handle_request():
             constant_time_is_equal(basic_auth['PASSWORD'].encode(), request.authorization.password.encode())
             for basic_auth in basic_auths[i]
         ]
-        for i, route in enumerate(routes)
+        for i, _ in enumerate(routes)
     ]
     on_auth_path_and_ok = [
         [
@@ -127,11 +127,11 @@ def handle_request():
             for j, basic_auth in enumerate(basic_auths[i])
             if parsed_url.path == basic_auth['AUTHENTICATE_PATH']
         ]
-        for i, route in enumerate(routes)
+        for i, _ in enumerate(routes)
     ]
     any_on_auth_path_and_ok = any([
         any(on_auth_path_and_ok[i])
-        for i, route in enumerate(routes)
+        for i, _ in enumerate(routes)
     ])
     should_request_auth = not any_on_auth_path_and_ok and any(
         (
@@ -141,7 +141,7 @@ def handle_request():
             len(on_auth_path_and_ok[i]) and
             all(not ok for ok in on_auth_path_and_ok[i])
         )
-        for i, route in enumerate(routes)
+        for i, _ in enumerate(routes)
     )
     should_respond_ok_to_auth_request = any(
         (
@@ -151,7 +151,7 @@ def handle_request():
             len(on_auth_path_and_ok[i]) and
             any(on_auth_path_and_ok[i])
         )
-        for i, route in enumerate(routes)
+        for i, _ in enumerate(routes)
     )
 
     any_route_with_all_checks_passed = any(
@@ -161,7 +161,7 @@ def handle_request():
             (not shared_secrets[i] or any(shared_secret_ok[i])) and
             (not basic_auths[i] or any(basic_auths_ok[i]))
         )
-        for i, route in enumerate(routes)
+        for i, _ in enumerate(routes)
     )
 
     try:
