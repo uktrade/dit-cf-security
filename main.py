@@ -169,6 +169,12 @@ def handle_request():
     except StopIteration:
         client_ip = 'Unknown'
 
+    headers_to_remove = tuple(set(
+        shared_secret['NAME'].lower()
+        for i, _ in enumerate(routes)
+        for shared_secret in shared_secrets[i]
+    )) + ('host', 'x-cf-forwarded-url', 'connection')
+
     if should_request_auth:
         return Response(
             'Could not verify your access level for that URL.\n'
@@ -190,12 +196,6 @@ def handle_request():
             if not contents:
                 break
             yield contents
-
-    headers_to_remove = tuple(set(
-        shared_secret['NAME'].lower()
-        for i, _ in enumerate(routes)
-        for shared_secret in shared_secrets[i]
-    )) + ('host', 'x-cf-forwarded-url', 'connection')
 
     origin_response = http.request(
         request.method,
