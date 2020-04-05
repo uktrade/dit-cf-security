@@ -102,7 +102,7 @@ def handle_request():
             )
             for shared_secret in shared_secrets[i]
         ]
-        for i, route in enumerate(routes)
+        for i, _ in enumerate(routes)
     ]
 
     # In general, any matching basic auth credentials are accepted. However,
