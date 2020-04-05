@@ -126,11 +126,11 @@ def handle_request():
         ]
         for i, route in enumerate(routes)
     ]
-    any_ony_auth_path_and_ok = any([
+    any_on_auth_path_and_ok = any([
         any(on_auth_path_and_ok[i])
         for i, route in enumerate(routes)
     ])
-    should_request_auth = not any_ony_auth_path_and_ok and any(
+    should_request_auth = not any_on_auth_path_and_ok and any(
         (
             hostname_ok[i] and
             ip_ok[i] and
