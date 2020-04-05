@@ -94,6 +94,19 @@ def handle_request():
             logger.debug('[%s] IP address %s does not match range', request_id, client_ip)
             continue
 
+        # Must pass a shared secret header check, if specified
+        shared_secrets = route.get('SHARED_SECRET_HEADER', [])
+        shared_secrets_ok = [
+            (
+                shared_secret['NAME'] in request.headers
+                and constant_time_is_equal(shared_secret['VALUE'].encode(), request.headers[shared_secret['NAME']].encode())
+            )
+            for shared_secret in shared_secrets
+        ]
+        if shared_secrets and not any(shared_secrets_ok):
+            logger.debug('[%s] Shared secret check failed', request_id)
+            continue
+
         # Must pass a basic auth check, if specified
         basic_auths = route.get('BASIC_AUTH', [])
         basic_auths_ok = [
@@ -120,19 +133,6 @@ def handle_request():
             return 'ok'
         if basic_auths and not any(basic_auths_ok):
             logger.debug('[%s] Basic auth failed', request_id)
-            continue
-
-        # Must pass a shared secret header check, if specified
-        shared_secrets = route.get('SHARED_SECRET_HEADER', [])
-        shared_secrets_ok = [
-            (
-                shared_secret['NAME'] in request.headers
-                and constant_time_is_equal(shared_secret['VALUE'].encode(), request.headers[shared_secret['NAME']].encode())
-            )
-            for shared_secret in shared_secrets
-        ]
-        if shared_secrets and not any(shared_secrets_ok):
-            logger.debug('[%s] Shared secret check failed', request_id)
             continue
 
         break

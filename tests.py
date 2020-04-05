@@ -1402,6 +1402,50 @@ class TestCfSecurity(unittest.TestCase):
         self.assertEqual(response.status, 401)
         self.assertEqual(response.headers['WWW-Authenticate'], 'Basic realm="Login Required"')
 
+    def test_basic_auth_after_shared_secret_check(self):
+        self.addCleanup(create_filter(8080, (
+            ('ORIGIN_HOSTNAME', 'localhost:8081'),
+            ('ORIGIN_PROTO', 'http'),
+            ('ROUTES__1__IP_DETERMINED_BY_X_FORWARDED_FOR_INDEX', '-3'),
+            ('ROUTES__1__IP_RANGES__1', '1.2.3.4/32'),
+            ('ROUTES__1__HOSTNAME_REGEX', r'^somehost\.com$'),
+            ('ROUTES__1__SHARED_SECRET_HEADER__1__NAME', 'x-cdn-secret'),
+            ('ROUTES__1__SHARED_SECRET_HEADER__1__VALUE', 'my-secret'),
+            ('ROUTES__1__BASIC_AUTH__1__USERNAME', 'my-user'),
+            ('ROUTES__1__BASIC_AUTH__1__PASSWORD', 'my-secret'),
+            ('ROUTES__1__BASIC_AUTH__1__AUTHENTICATE_PATH', '/__some_path'),
+        )))
+        self.addCleanup(create_origin(8081))
+        wait_until_connectable(8080)
+        wait_until_connectable(8081)
+
+        response = urllib3.PoolManager().request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-cf-forwarded-url': 'http://somehost.com/__some_path',
+                'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
+                'x-cdn-secret': 'my-mangos',
+                'authorization': 'Basic ' + base64.b64encode(b'my-user:my-mangos').decode('utf-8'),
+            },
+        )
+        self.assertEqual(response.status, 403)
+        self.assertNotIn('WWW-Authenticate', response.headers)
+
+        response = urllib3.PoolManager().request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-cf-forwarded-url': 'http://somehost.com/__some_path',
+                'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
+                'x-cdn-secret': 'my-secret',
+                'authorization': 'Basic ' + base64.b64encode(b'my-user:my-mangos').decode('utf-8'),
+            },
+        )
+        self.assertEqual(response.status, 401)
+        self.assertEqual(response.headers['WWW-Authenticate'], 'Basic realm="Login Required"')
+
+
 def create_filter(port, env=()):
     def stop():
         process.terminate()
