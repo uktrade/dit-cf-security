@@ -192,9 +192,9 @@ def handle_request():
             yield contents
 
     headers_to_remove = tuple(set(
-        shared_secret_header['NAME'].lower()
-        for route in env['ROUTES']
-        for shared_secret_header in route.get('SHARED_SECRET_HEADER', [])
+        shared_secret['NAME'].lower()
+        for i, _ in enumerate(routes)
+        for shared_secret in shared_secrets[i]
     )) + ('host', 'x-cf-forwarded-url', 'connection')
 
     origin_response = http.request(
