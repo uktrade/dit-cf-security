@@ -778,6 +778,58 @@ class TestCfSecurity(unittest.TestCase):
         ).status
         self.assertEqual(status, 200)
 
+    def test_client_ip_from_route_with_matching_host_used(self):
+        self.addCleanup(create_filter(8080, (
+            ('ORIGIN_HOSTNAME', 'localhost:8081'),
+            ('ORIGIN_PROTO', 'http'),
+            ('ROUTES__1__IP_DETERMINED_BY_X_FORWARDED_FOR_INDEX', '-3'),
+            ('ROUTES__1__IP_RANGES__1', '1.2.3.4/32'),
+            ('ROUTES__1__HOSTNAME_REGEX', r'^somehost\.com$'),
+            ('ROUTES__1__SHARED_SECRET_HEADER__1__NAME', 'x-cdn-secret'),
+            ('ROUTES__1__SHARED_SECRET_HEADER__1__VALUE', 'my-secret'),
+            ('ROUTES__2__IP_DETERMINED_BY_X_FORWARDED_FOR_INDEX', '-2'),
+            ('ROUTES__2__IP_RANGES__1', '1.2.3.4/32'),
+            ('ROUTES__2__HOSTNAME_REGEX', r'^someotherhost\.com$'),
+            ('ROUTES__2__SHARED_SECRET_HEADER__1__NAME', 'x-cdn-secret'),
+            ('ROUTES__2__SHARED_SECRET_HEADER__1__VALUE', 'my-secret'),
+        )))
+        self.addCleanup(create_origin(8081))
+        wait_until_connectable(8080)
+        wait_until_connectable(8081)
+
+        response = urllib3.PoolManager().request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-cf-forwarded-url': 'http://somehost.com/',
+                'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.2',
+            },
+        )
+        self.assertEqual(response.status, 403)
+        self.assertIn(b'>1.2.3.4<', response.data)
+
+        response = urllib3.PoolManager().request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-cf-forwarded-url': 'http://someotherhost.com/',
+                'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.2',
+            },
+        )
+        self.assertEqual(response.status, 403)
+        self.assertIn(b'>1.1.1.1<', response.data)
+
+        response = urllib3.PoolManager().request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-cf-forwarded-url': 'http://someounknown.com/',
+                'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.2',
+            },
+        )
+        self.assertEqual(response.status, 403)
+        self.assertIn(b'>Unknown<', response.data)
+
     def test_host_not_matching_returns_403(self):
         self.addCleanup(create_filter(8080, (
             ('ORIGIN_HOSTNAME', 'localhost:8081'),

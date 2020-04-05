@@ -164,8 +164,17 @@ def handle_request():
         for i, _ in enumerate(routes)
     )
 
+    # There is no perfect answer as to which IP to present to the client in
+    # the light of multiple routes with different indexes of the
+    # x-forwarded-for header. However, in real cases it is likely that if the
+    # host matches, then that will be the correct one. If 'Unknown' is then
+    # shown to the user, it suggests something has been misconfigured
     try:
-        client_ip = next(client_ip for client_ip in client_ips if client_ip)
+        client_ip = next(
+            client_ips[i]
+            for i, _ in enumerate(routes)
+            if hostname_ok[i]
+        )
     except StopIteration:
         client_ip = 'Unknown'
 
