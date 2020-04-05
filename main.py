@@ -72,72 +72,111 @@ def handle_request():
     logger.debug('[%s] X-Forwarded-For: %s', request_id, x_forwarded_for)
     client_ip = 'Unknown'
 
-    # A request is only rejected only if it matches no routes
-    for route in env['ROUTES']:
-        if not re.match(route['HOSTNAME_REGEX'], parsed_url.hostname):
-            continue
-
-        logger.debug('[%s] Host matches %s', request_id, route['HOSTNAME_REGEX'])
-
+    def get_client_ip(route):
         try:
-            client_ip = x_forwarded_for.split(',')[int(route['IP_DETERMINED_BY_X_FORWARDED_FOR_INDEX'])].strip()
+            return x_forwarded_for.split(',')[int(route['IP_DETERMINED_BY_X_FORWARDED_FOR_INDEX'])].strip()
         except IndexError:
             logger.debug('[%s] Not enough addresses in x-forwarded-for %s', request_id, x_forwarded_for)
-            continue
 
-        logger.debug('[%s] Trusting that the client has IP %s', request_id, client_ip)
-
-        # The client IP must be in an allowed range, which can be 0.0.0.0/0
-        if not any(
-                IPv4Address(client_ip) in IPv4Network(ip_range) for ip_range in route['IP_RANGES']
-        ):
-            logger.debug('[%s] IP address %s does not match range', request_id, client_ip)
-            continue
-
-        # Must pass a shared secret header check, if specified
-        shared_secrets = route.get('SHARED_SECRET_HEADER', [])
-        shared_secrets_ok = [
+    routes = env['ROUTES']
+    hostname_ok = [
+        re.match(route['HOSTNAME_REGEX'], parsed_url.hostname)
+        for route in routes
+    ]
+    client_ips = [
+        get_client_ip(route)
+        for route in routes
+    ]
+    ip_ok = [
+        any(client_ips[i] and IPv4Address(client_ips[i]) in IPv4Network(ip_range) for ip_range in route['IP_RANGES'])
+        for i, route in enumerate(routes)
+    ]
+    shared_secret_ok = [
+        'SHARED_SECRET_HEADER' not in route or any(
             (
                 shared_secret['NAME'] in request.headers
                 and constant_time_is_equal(shared_secret['VALUE'].encode(), request.headers[shared_secret['NAME']].encode())
             )
-            for shared_secret in shared_secrets
-        ]
-        if shared_secrets and not any(shared_secrets_ok):
-            logger.debug('[%s] Shared secret check failed', request_id)
-            continue
+            for shared_secret in route['SHARED_SECRET_HEADER']
+        )
+        for route in routes
+    ]
 
-        # Must pass a basic auth check, if specified
-        basic_auths = route.get('BASIC_AUTH', [])
-        basic_auths_ok = [
-            (
-                request.authorization and
-                constant_time_is_equal(basic_auth['USERNAME'].encode(), request.authorization.username.encode()) and 
-                constant_time_is_equal(basic_auth['PASSWORD'].encode(), request.authorization.password.encode())
-            )
-            for basic_auth in basic_auths
+    # In general, any matching basic auth credentials are accepted. However,
+    # on authentication paths, only those with that path are accepted, and
+    # on failure, a 401 is returned to request the correct credentials
+    basic_auths = [
+        route.get('BASIC_AUTH', [])
+        for route in routes
+    ]
+    basic_auths_ok = [
+        [
+            request.authorization and
+            constant_time_is_equal(basic_auth['USERNAME'].encode(), request.authorization.username.encode()) and 
+            constant_time_is_equal(basic_auth['PASSWORD'].encode(), request.authorization.password.encode())
+            for basic_auth in basic_auths[i]
         ]
-        on_auth_path_and_ok = [
-            basic_auths_ok[i]
-            for i, basic_auth in enumerate(basic_auths)
+        for i, route in enumerate(routes)
+    ]
+    on_auth_path_and_ok = [
+        [
+            basic_auths_ok[i][j]
+            for j, basic_auth in enumerate(basic_auths[i])
             if parsed_url.path == basic_auth['AUTHENTICATE_PATH']
         ]
-        # If on authentication path, but have passed no checks for this path, request auth
-        if bool(on_auth_path_and_ok) and all(not ok for ok in on_auth_path_and_ok):
-            return Response(
-                'Could not verify your access level for that URL.\n'
-                'You have to login with proper credentials', 401,
-                {'WWW-Authenticate': 'Basic realm="Login Required"'})
-        # If on authentication path, and have passed any checks for this path, say ok
-        if bool(on_auth_path_and_ok) and any(on_auth_path_and_ok):
-            return 'ok'
-        if basic_auths and not any(basic_auths_ok):
-            logger.debug('[%s] Basic auth failed', request_id)
-            continue
+        for i, route in enumerate(routes)
+    ]
+    any_ony_auth_path_and_ok = any([
+        any(on_auth_path_and_ok[i])
+        for i, route in enumerate(routes)
+    ])
+    should_request_auth = not any_ony_auth_path_and_ok and any(
+        (
+            hostname_ok[i] and
+            ip_ok[i] and
+            shared_secret_ok[i] and
+            len(on_auth_path_and_ok[i]) and
+            all(not ok for ok in on_auth_path_and_ok[i])
+        )
+        for i, route in enumerate(routes)
+    )
+    should_respond_ok_to_auth_request = any(
+        (
+            hostname_ok[i] and
+            ip_ok[i] and
+            shared_secret_ok[i] and
+            len(on_auth_path_and_ok[i]) and
+            any(on_auth_path_and_ok[i])
+        )
+        for i, route in enumerate(routes)
+    )
 
-        break
-    else:
-        logger.error('[%s] No matching route', request_id)
+    any_route_with_all_checks_passed = any(
+        (
+            hostname_ok[i] and
+            ip_ok[i] and
+            shared_secret_ok[i] and
+            (not basic_auths[i] or any(basic_auths_ok[i]))
+        )
+        for i, route in enumerate(routes)
+    )
+
+    try:
+        client_ip = next(client_ip for client_ip in client_ips if client_ip)
+    except StopIteration:
+        client_ip = 'Unknown'
+
+    if should_request_auth:
+        return Response(
+            'Could not verify your access level for that URL.\n'
+            'You have to login with proper credentials', 401,
+            {'WWW-Authenticate': 'Basic realm="Login Required"'})
+
+    if should_respond_ok_to_auth_request:
+        return 'ok'
+
+    if not any_route_with_all_checks_passed:
+        logger.warning('[%s] No matching route', request_id)
         return render_access_denied(client_ip, forwarded_url)
 
     logger.info('[%s] Making request to origin', request_id)
