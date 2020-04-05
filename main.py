@@ -70,7 +70,6 @@ def handle_request():
         return render_access_denied('Unknown', forwarded_url)
 
     logger.debug('[%s] X-Forwarded-For: %s', request_id, x_forwarded_for)
-    client_ip = 'Unknown'
 
     def get_client_ip(route):
         try:
@@ -91,15 +90,19 @@ def handle_request():
         any(client_ips[i] and IPv4Address(client_ips[i]) in IPv4Network(ip_range) for ip_range in route['IP_RANGES'])
         for i, route in enumerate(routes)
     ]
+    shared_secrets = [
+        route.get('SHARED_SECRET_HEADER', [])
+        for route in routes
+    ]
     shared_secret_ok = [
-        'SHARED_SECRET_HEADER' not in route or any(
+        [
             (
                 shared_secret['NAME'] in request.headers
                 and constant_time_is_equal(shared_secret['VALUE'].encode(), request.headers[shared_secret['NAME']].encode())
             )
-            for shared_secret in route['SHARED_SECRET_HEADER']
-        )
-        for route in routes
+            for shared_secret in shared_secrets[i]
+        ]
+        for i, route in enumerate(routes)
     ]
 
     # In general, any matching basic auth credentials are accepted. However,
@@ -134,7 +137,7 @@ def handle_request():
         (
             hostname_ok[i] and
             ip_ok[i] and
-            shared_secret_ok[i] and
+            (not shared_secrets[i] or any(shared_secret_ok[i])) and
             len(on_auth_path_and_ok[i]) and
             all(not ok for ok in on_auth_path_and_ok[i])
         )
@@ -144,7 +147,7 @@ def handle_request():
         (
             hostname_ok[i] and
             ip_ok[i] and
-            shared_secret_ok[i] and
+            (not shared_secrets[i] or any(shared_secret_ok[i])) and
             len(on_auth_path_and_ok[i]) and
             any(on_auth_path_and_ok[i])
         )
@@ -155,7 +158,7 @@ def handle_request():
         (
             hostname_ok[i] and
             ip_ok[i] and
-            shared_secret_ok[i] and
+            (not shared_secrets[i] or any(shared_secret_ok[i])) and
             (not basic_auths[i] or any(basic_auths_ok[i]))
         )
         for i, route in enumerate(routes)
