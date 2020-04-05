@@ -96,28 +96,31 @@ def handle_request():
 
         # Must pass a basic auth check, if specified
         basic_auths = route.get('BASIC_AUTH', [])
-        for basic_auth in basic_auths:
-            basic_auth_ok = (
+        basic_auths_ok = [
+            (
                 request.authorization and
                 constant_time_is_equal(basic_auth['USERNAME'].encode(), request.authorization.username.encode()) and 
                 constant_time_is_equal(basic_auth['PASSWORD'].encode(), request.authorization.password.encode())
             )
-            should_request_auth = (
-                parsed_url.path == basic_auth['AUTHENTICATE_PATH'] and
-                not basic_auth_ok
-            )
-            if should_request_auth:
-                return Response(
-                    'Could not verify your access level for that URL.\n'
-                    'You have to login with proper credentials', 401,
-                    {'WWW-Authenticate': 'Basic realm="Login Required"'})
-            if basic_auth_ok:
-                logger.debug('[%s] Matches basic auth %s', request_id, basic_auth['USERNAME'])
-                break
-        else:
-            if basic_auths:
-                logger.debug('[%s] Basic auth failed', request_id)
-                continue
+            for basic_auth in basic_auths
+        ]
+        on_auth_path_and_ok = [
+            basic_auths_ok[i]
+            for i, basic_auth in enumerate(basic_auths)
+            if parsed_url.path == basic_auth['AUTHENTICATE_PATH']
+        ]
+        # If on authentication path, but have passed no checks for this path, request auth
+        if bool(on_auth_path_and_ok) and all(not ok for ok in on_auth_path_and_ok):
+            return Response(
+                'Could not verify your access level for that URL.\n'
+                'You have to login with proper credentials', 401,
+                {'WWW-Authenticate': 'Basic realm="Login Required"'})
+        # If on authentication path, and have passed any checks for this path, say ok
+        if bool(on_auth_path_and_ok) and any(on_auth_path_and_ok):
+            return 'ok'
+        if basic_auths and not any(basic_auths_ok):
+            logger.debug('[%s] Basic auth failed', request_id)
+            continue
 
         # Must pass a shared secret header check, if specified
         shared_secrets = route.get('SHARED_SECRET_HEADER', [])
