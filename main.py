@@ -12,7 +12,7 @@ from flask import Flask, request, Response, render_template
 from random import choices
 import urllib3
 
-app = Flask(__name__)
+app = Flask(__name__, template_folder=os.path.dirname(__file__))
 env = normalise_environment(os.environ)
 
 # All requested URLs are eventually routed to to the same load balancer, which
