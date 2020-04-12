@@ -169,14 +169,9 @@ def handle_request():
     # x-forwarded-for header. However, in real cases it is likely that if the
     # host matches, then that will be the correct one. If 'Unknown' is then
     # shown to the user, it suggests something has been misconfigured
-    try:
-        client_ip = next(
-            client_ips[i]
-            for i, _ in enumerate(routes)
-            if hostname_ok[i]
-        )
-    except StopIteration:
-        client_ip = 'Unknown'
+    client_ip = next(
+        (client_ips[i] for i, _ in enumerate(routes) if hostname_ok[i])
+    , 'Unknown')
 
     headers_to_remove = tuple(set(
         shared_secret['NAME'].lower()
