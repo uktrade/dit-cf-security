@@ -688,14 +688,16 @@ class TestCfSecurity(unittest.TestCase):
         )))
         wait_until_connectable(8080)
 
-        status = urllib3.PoolManager().request(
+        response = urllib3.PoolManager().request(
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
             },
-        ).status
-        self.assertEqual(status, 403)
+        )
+        self.assertEqual(response.status, 403)
+        self.assertIn( b'the Department for International Trade WebOps team', response.data)
+        self.assertIn(b'href="mailto:test@test.test">', response.data)
 
     def test_missing_x_forwarded_for_returns_403_and_origin_not_called(self):
         # Origin not running: if an attempt was made to connect to it, we
@@ -1570,6 +1572,7 @@ def create_filter(port, env=()):
         'ROUTES__1__HOSTNAME_REGEX': '.*',
         'ROUTES__1__IP_RANGES__1': '1.2.3.4/32',
         'PORT': str(port),
+        'EMAIL_NAME': 'the Department for International Trade WebOps team',
         'EMAIL': 'test@test.test',
         'LOG_LEVEL': 'DEBUG',
         **dict(env),
