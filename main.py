@@ -42,6 +42,7 @@ def render_access_denied(client_ip, forwarded_url):
     return (render_template(
         'access-denied.html',
         client_ip=client_ip,
+        email_name=env['EMAIL_NAME'],
         email=env['EMAIL'],
         forwarded_url=forwarded_url,
     ), 403)
