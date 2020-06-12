@@ -378,6 +378,27 @@ class TestCfSecurity(unittest.TestCase):
         ).headers['some-header']
         self.assertEqual(response_header, 'some-value')
 
+    def test_content_disposition_with_latin_1_character_is_forwarded(self):
+        self.addCleanup(create_filter(8080, (
+            ('ORIGIN_HOSTNAME', 'localhost:8081'),
+            ('ORIGIN_PROTO', 'http'),
+        )))
+        self.addCleanup(create_origin(8081))
+        wait_until_connectable(8080)
+        wait_until_connectable(8081)
+
+        response_header = urllib3.PoolManager().request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-cf-forwarded-url': 'http://127.0.0.1:8081/',
+                'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
+                'x-echo-response-header-content-disposition': 'attachment; filename="Ö"',
+            },
+        ).headers['content-disposition']
+
+        self.assertEqual(response_header, 'attachment; filename="Ö"')
+
     def test_head_content_length_is_forwarded(self):
         self.addCleanup(create_filter(8080, (
             ('ORIGIN_HOSTNAME', 'localhost:8081'),
