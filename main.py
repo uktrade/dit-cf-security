@@ -38,19 +38,21 @@ logger = logging.getLogger(__name__)
 request_id_alphabet = string.ascii_letters + string.digits
 
 
-def render_access_denied(client_ip, forwarded_url):
+def render_access_denied(client_ip, forwarded_url, request_id):
     return (render_template(
         'access-denied.html',
         client_ip=client_ip,
         email_name=env['EMAIL_NAME'],
         email=env['EMAIL'],
+        request_id=request_id,
         forwarded_url=forwarded_url,
     ), 403)
 
 
 @app.route('/', methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'])
 def handle_request():
-    request_id = ''.join(choices(request_id_alphabet, k=8))
+    request_id = request.headers.get('X-B3-TraceId') or ''.join(choices(request_id_alphabet, k=8))
+
     logger.info('[%s] Start', request_id)
 
     # Must have X-CF-Forwarded-Url to match route
@@ -58,7 +60,7 @@ def handle_request():
         forwarded_url = request.headers['X-CF-Forwarded-Url']
     except KeyError:
         logger.error('[%s] Missing X-CF-Forwarded-Url header', request_id)
-        return render_access_denied('Unknown', 'Unknown')
+        return render_access_denied('Unknown', 'Unknown', request_id)
 
     logger.info('[%s] Forwarded URL: %s', request_id, forwarded_url)
     parsed_url = urllib.parse.urlsplit(forwarded_url)
@@ -68,7 +70,7 @@ def handle_request():
         x_forwarded_for = request.headers['X-Forwarded-For']
     except KeyError:
         logger.error('[%s] X-Forwarded-For header is missing', request_id)
-        return render_access_denied('Unknown', forwarded_url)
+        return render_access_denied('Unknown', forwarded_url, request_id)
 
     logger.debug('[%s] X-Forwarded-For: %s', request_id, x_forwarded_for)
 
@@ -116,7 +118,7 @@ def handle_request():
     basic_auths_ok = [
         [
             request.authorization and
-            constant_time_is_equal(basic_auth['USERNAME'].encode(), request.authorization.username.encode()) and 
+            constant_time_is_equal(basic_auth['USERNAME'].encode(), request.authorization.username.encode()) and
             constant_time_is_equal(basic_auth['PASSWORD'].encode(), request.authorization.password.encode())
             for basic_auth in basic_auths[i]
         ]
@@ -190,8 +192,10 @@ def handle_request():
         return 'ok'
 
     if not any_route_with_all_checks_passed:
-        logger.warning('[%s] No matching route', request_id)
-        return render_access_denied(client_ip, forwarded_url)
+        logger.warning(
+            '[%s] No matching route; host: %s client ip: %s',
+            request_id, parsed_url.hostname, client_ip)
+        return render_access_denied(client_ip, forwarded_url, request_id)
 
     logger.info('[%s] Making request to origin', request_id)
 

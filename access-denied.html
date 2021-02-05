@@ -22,7 +22,7 @@
     }
     @media (min-width: 40.0625em) {
       .govuk-width-container {
-        margin: 0 30px; 
+        margin: 0 30px;
       }
     }
     @supports (margin: max(calc(0px))) {
@@ -148,7 +148,7 @@
       font-size: 1rem;
       line-height: 1.25;
       margin: 0 0 20px;
-    } 
+    }
     @media (min-width: 40.0625em) {
       .govuk-summary-list {
         font-size: 19px;
@@ -183,9 +183,14 @@
       <h1 class="govuk-heading-xl">You are not allowed to access this page</h1>
 
       <p class="govuk-body">You do not appear to be on a trusted network.</p>
-      <p class="govuk-body">If you require access please go to <a class="govuk-link" href="https://workspace.trade.gov.uk/working-at-dit/how-do-i/gain-access-to-a-trusted-network">Gain access to a trusted network</a> on digital workspace.</p> 
+
+      <p class="govuk-body">See the Digital Workspace page <a class="govuk-link" href="https://workspace.trade.gov.uk/working-at-dit/how-do-i/gain-access-to-a-trusted-network">gain access to a trusted network</a> for more information.</p>
 
       <dl class="govuk-summary-list">
+        <div class="govuk-summary-list__row">
+            <dt class="govuk-summary-list__key">Request ID: </dt>
+            <dd class="govuk-summary-list__value">{{ request_id }}</dd>
+        </div>
         <div class="govuk-summary-list__row">
             <dt class="govuk-summary-list__key">IP</dt>
             <dd class="govuk-summary-list__value">{{ client_ip }}</dd>
