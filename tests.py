@@ -664,7 +664,7 @@ class TestCfSecurity(unittest.TestCase):
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
             },
         ).data
-        self.assertIn(b'<title>Google</title>', data)
+        self.assertIn(b'<title>https://www.google.com/</title>', data)
 
     def test_https_origin_not_exist_returns_500(self):
         self.addCleanup(create_filter(8080, (
@@ -717,8 +717,8 @@ class TestCfSecurity(unittest.TestCase):
             },
         )
         self.assertEqual(response.status, 403)
-        self.assertIn( b'the Department for International Trade WebOps team', response.data)
-        self.assertIn(b'href="mailto:test@test.test">', response.data)
+        self.assertIn(b'See the Digital Workspace page', response.data)
+        self.assertIn(b'href="https://workspace.trade.gov.uk/working-at-dit/how-do-i/gain-access-to-a-trusted-network">', response.data)
 
     def test_missing_x_forwarded_for_returns_403_and_origin_not_called(self):
         # Origin not running: if an attempt was made to connect to it, we
