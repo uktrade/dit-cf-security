@@ -615,6 +615,7 @@ class TestCfSecurity(unittest.TestCase):
         )
         self.assertEqual(response.data, b'something-to-zip')
         self.assertEqual(response.headers['content-encoding'], 'gzip')
+        self.assertIn('content-length', response.headers)
 
     def test_slow_upload(self):
         self.addCleanup(create_filter(8080, (
