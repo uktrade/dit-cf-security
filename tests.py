@@ -399,6 +399,27 @@ class TestCfSecurity(unittest.TestCase):
 
         self.assertEqual(response_header, 'attachment; filename="Ö"')
 
+    def test_get_content_length_is_forwarded(self):
+        self.addCleanup(create_filter(8080, (
+            ('ORIGIN_HOSTNAME', 'localhost:8081'),
+            ('ORIGIN_PROTO', 'http'),
+        )))
+        self.addCleanup(create_origin(8081))
+        wait_until_connectable(8080)
+        wait_until_connectable(8081)
+
+        content_length = urllib3.PoolManager().request(
+            'GET',
+            # Make sure test doesn't pass due to "de-chunking" of small bodies
+            body=b'Something' * 10000000,
+            url='http://127.0.0.1:8080/',
+            headers={
+                'x-cf-forwarded-url': 'http://127.0.0.1:8081/',
+                'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
+            }
+        ).headers['content-length']
+        self.assertEqual(content_length, '90000000')
+
     def test_head_content_length_is_forwarded(self):
         self.addCleanup(create_filter(8080, (
             ('ORIGIN_HOSTNAME', 'localhost:8081'),
