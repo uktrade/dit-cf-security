@@ -1621,6 +1621,28 @@ class TestCfSecurity(unittest.TestCase):
         self.assertEqual(response.status, 403)
         self.assertIn(b'>1234magictraceid<', response.data)
 
+        def test_client_ipv6_is_handled(self):
+            self.addCleanup(create_filter(8080, (
+                ('ORIGIN_HOSTNAME', 'localhost:8081'),
+                ('ORIGIN_PROTO', 'http'),
+                ('ROUTES__1__IP_DETERMINED_BY_X_FORWARDED_FOR_INDEX', '-2'),
+                ('ROUTES__1__IP_RANGES__1', '4.4.4.4/32'),
+                ('ROUTES__1__HOSTNAME_REGEX', r'^somehost\.com$'),
+            )))
+            self.addCleanup(create_origin(8081))
+            wait_until_connectable(8080)
+            wait_until_connectable(8081)
+
+            status = urllib3.PoolManager().request(
+                'GET',
+                url='http://127.0.0.1:8080/',
+                headers={
+                    'x-cf-forwarded-url': 'http://somehost.com/',
+                    'x-forwarded-for': '2a00:23c4:ce80:a01:4979:78c8:535c:bc16, 1.1.1.1',
+                },
+            ).status
+            self.assertEqual(status, 403)
+
 
 def create_filter(port, env=()):
     def stop():
