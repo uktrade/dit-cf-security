@@ -2,7 +2,7 @@ import os
 import re
 import sys
 import logging
-from ipaddress import IPv4Network, IPv4Address
+from ipaddress import ip_address, ip_network
 import urllib.parse
 import string
 
@@ -86,11 +86,10 @@ def handle_request():
         for route in routes
     ]
     client_ips = [
-        get_client_ip(route)
-        for route in routes
+        get_client_ip(route) for route in routes
     ]
     ip_ok = [
-        any(client_ips[i] and IPv4Address(client_ips[i]) in IPv4Network(ip_range) for ip_range in route['IP_RANGES'])
+        any(client_ips[i] and ip_address(client_ips[i]) in ip_network(ip_range) for ip_range in route['IP_RANGES'])
         for i, route in enumerate(routes)
     ]
     shared_secrets = [
