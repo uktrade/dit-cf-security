@@ -10,10 +10,29 @@ from utils import constant_time_is_equal, normalise_environment
 
 from flask import Flask, request, Response, render_template
 from random import choices
+from smart_open import open
 import urllib3
+import yaml
 
-app = Flask(__name__, template_folder=os.path.dirname(__file__))
+app = Flask(__name__, template_folder=os.path.dirname(__file__), static_folder=None)
 env = normalise_environment(os.environ)
+
+
+def get_route_config():
+
+    # TODO: cache this
+    config_file = env.get("CONFIG_FILE", "s3://ipfilter-config/ROUTES.yaml")
+
+    fd = open(config_file)
+    config = yaml.load(fd, Loader=yaml.Loader)
+
+    version = config["VERSION"]
+    routes = config["ROUTES"]
+
+    # if version changes, then update
+
+    return version, routes
+
 
 # All requested URLs are eventually routed to to the same load balancer, which
 # uses the host header to route requests to the correct application. So as
@@ -49,21 +68,24 @@ def render_access_denied(client_ip, forwarded_url, request_id):
     ), 403)
 
 
-@app.route('/', methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'])
-def handle_request():
+@app.route('/__ip_config_version__')
+def version():
+    version, _ = get_route_config()
+
+    return version
+
+
+@app.route('/', defaults={'u_path': ''}, methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'])
+@app.route('/<path:u_path>', methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'])
+def handle_request(u_path):
     request_id = request.headers.get('X-B3-TraceId') or ''.join(choices(request_id_alphabet, k=8))
 
     logger.info('[%s] Start', request_id)
 
-    # Must have X-CF-Forwarded-Url to match route
-    try:
-        forwarded_url = request.headers['X-CF-Forwarded-Url']
-    except KeyError:
-        logger.error('[%s] Missing X-CF-Forwarded-Url header', request_id)
-        return render_access_denied('Unknown', 'Unknown', request_id)
-
+    forwarded_url = request.full_path
     logger.info('[%s] Forwarded URL: %s', request_id, forwarded_url)
     parsed_url = urllib.parse.urlsplit(forwarded_url)
+    hostname = request.headers['host']
 
     # Find x-forwarded-for
     try:
@@ -80,9 +102,10 @@ def handle_request():
         except IndexError:
             logger.debug('[%s] Not enough addresses in x-forwarded-for %s', request_id, x_forwarded_for)
 
-    routes = env['ROUTES']
+    _, routes = get_route_config()
+
     hostname_ok = [
-        re.match(route['HOSTNAME_REGEX'], parsed_url.hostname)
+        re.match(route['HOSTNAME_REGEX'], hostname)
         for route in routes
     ]
     client_ips = [
@@ -179,7 +202,7 @@ def handle_request():
         shared_secret['NAME'].lower()
         for i, _ in enumerate(routes)
         for shared_secret in shared_secrets[i]
-    )) + ('host', 'x-cf-forwarded-url', 'connection')
+    )) + ('host', 'connection')
 
     if should_request_auth:
         return Response(
@@ -193,7 +216,7 @@ def handle_request():
     if not any_route_with_all_checks_passed:
         logger.warning(
             '[%s] No matching route; host: %s client ip: %s',
-            request_id, parsed_url.hostname, client_ip)
+            request_id, hostname, client_ip)
         return render_access_denied(client_ip, forwarded_url, request_id)
 
     logger.info('[%s] Making request to origin', request_id)
