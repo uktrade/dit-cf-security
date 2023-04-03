@@ -82,6 +82,8 @@ def handle_request(u_path):
 
     logger.info('[%s] Start', request_id)
 
+    logger.info('[%s] Headers dict: %s', request_id, request.headers)
+    
     forwarded_url = request.full_path
     logger.info('[%s] Forwarded URL: %s', request_id, forwarded_url)
     parsed_url = urllib.parse.urlsplit(forwarded_url)
@@ -146,6 +148,7 @@ def handle_request(u_path):
         ]
         for i, _ in enumerate(routes)
     ]
+    breakpoint()
     on_auth_path_and_ok = [
         [
             basic_auths_ok[i][j]
@@ -212,7 +215,7 @@ def handle_request(u_path):
 
     if should_respond_ok_to_auth_request:
         return 'ok'
-
+    breakpoint()
     if not any_route_with_all_checks_passed:
         logger.warning(
             '[%s] No matching route; host: %s client ip: %s',
