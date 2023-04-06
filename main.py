@@ -8,7 +8,9 @@ import string
 
 from utils import constant_time_is_equal, normalise_environment
 
+from appconfig_helper import AppConfigHelper
 from flask import Flask, request, Response, render_template
+from flask_caching import Cache
 from random import choices
 from smart_open import open
 import urllib3
@@ -17,14 +19,24 @@ import yaml
 app = Flask(__name__, template_folder=os.path.dirname(__file__), static_folder=None)
 env = normalise_environment(os.environ)
 
+config = {
+    "DEBUG": True,          # some Flask specific configs
+    "CACHE_TYPE": "SimpleCache",  # Flask-Caching related configs
+    "CACHE_DEFAULT_TIMEOUT": 300
+}
+app.config.from_mapping(config)
+cache = Cache(app)
 
 def get_route_config():
 
-    # TODO: cache this
-    config_file = env.get("CONFIG_FILE", "s3://ipfilter-config/ROUTES.yaml")
-
-    fd = open(config_file)
-    config = yaml.load(fd, Loader=yaml.Loader)
+    config = cache.get("config")
+    
+    if not config:
+        config_file = env.get("CONFIG_FILE", "s3://ipfilter-config/ROUTES.yaml")
+        fd = open(config_file)
+        config = yaml.load(fd, Loader=yaml.Loader)
+        logger.info("Caching config file")
+        cache.set("config", config)
 
     version = config["VERSION"]
     routes = config["ROUTES"]
@@ -148,7 +160,7 @@ def handle_request(u_path):
         ]
         for i, _ in enumerate(routes)
     ]
-    breakpoint()
+
     on_auth_path_and_ok = [
         [
             basic_auths_ok[i][j]
@@ -215,7 +227,7 @@ def handle_request(u_path):
 
     if should_respond_ok_to_auth_request:
         return 'ok'
-    breakpoint()
+
     if not any_route_with_all_checks_passed:
         logger.warning(
             '[%s] No matching route; host: %s client ip: %s',

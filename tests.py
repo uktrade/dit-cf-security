@@ -1,6 +1,7 @@
 import base64
 import gzip
 import json
+import tempfile
 from multiprocess import (
     Process,
 )
@@ -17,12 +18,14 @@ import time
 import unittest
 import urllib.parse
 import uuid
+import yaml
 
 from flask import (
     Flask,
     Response,
     request,
 )
+from unittest.mock import patch
 import urllib3
 from werkzeug.routing import (
     Rule,
@@ -30,6 +33,8 @@ from werkzeug.routing import (
 from werkzeug.serving import (
     WSGIRequestHandler,
 )
+
+from utils import normalise_environment
 
 
 class TestCfSecurity(unittest.TestCase):
@@ -1646,9 +1651,12 @@ class TestCfSecurity(unittest.TestCase):
 
 def create_filter(port, env=()):
     def stop():
+        fo.close()
+        os.remove('new_test.yaml')
         process.terminate()
         process.wait()
 
+    fo = open('new_test.yaml', 'w')
     with open('Procfile', 'r') as f:
         lines = f.readlines()
     for line in lines:
@@ -1664,8 +1672,26 @@ def create_filter(port, env=()):
         'EMAIL_NAME': 'the Department for International Trade WebOps team',
         'EMAIL': 'test@test.test',
         'LOG_LEVEL': 'DEBUG',
+        'CONFIG_FILE': fo.name,
         **dict(env),
     })
+    
+    env_dict = dict(env)
+    yaml_dict = {'VERSION': '1.0.0', 'ROUTES': [{'IP_RANGES': []}, {}]}
+    for key in env_dict.keys():
+        if 'ROUTES' in key:
+            split_key = key.split("__")
+            route_idx = int(split_key[1]) - 1
+            if 'IP_RANGES' in key:
+                yaml_dict['ROUTES'][route_idx]['IP_RANGES'] = yaml_dict['ROUTES'][route_idx]['IP_RANGES'] + [env_dict[key]]
+            else:
+                yaml_dict['ROUTES'][route_idx][split_key[2]] = env_dict[key]
+    
+    if yaml_dict['ROUTES'][1] == {}:
+        yaml_dict['ROUTES'].pop(1)
+    
+    yaml.dump(yaml_dict, fo)
+    
 
     return stop
 
