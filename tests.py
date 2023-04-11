@@ -816,7 +816,7 @@ class TestCfSecurity(unittest.TestCase):
             IP_RANGES=['1.2.3.4/32'],
             HOSTNAME_REGEX=r'^somehost\.com$'
         )
-        print(env)
+
         with patch('main.get_route_config', return_value=('1.0.0', copied_config)):
             response = urllib3.PoolManager().request(
                 'GET',
