@@ -1,7 +1,7 @@
 import base64
 import gzip
 import json
-from multiprocessing import (
+from multiprocess import (
     Process,
 )
 from io import (
@@ -17,6 +17,8 @@ import time
 import unittest
 import urllib.parse
 import uuid
+import yaml
+from unittest.mock import patch
 
 from flask import (
     Flask,
@@ -30,6 +32,14 @@ from werkzeug.routing import (
 from werkzeug.serving import (
     WSGIRequestHandler,
 )
+
+ROUTES_CONFIG = [
+    {
+    'IP_DETERMINED_BY_X_FORWARDED_FOR_INDEX': '-3',
+    'HOSTNAME_REGEX': '.*',
+    'IP_RANGES': '1.2.3.4/32',
+}
+]
 
 
 class TestCfSecurity(unittest.TestCase):
@@ -800,15 +810,22 @@ class TestCfSecurity(unittest.TestCase):
         self.addCleanup(create_origin(8081))
         wait_until_connectable(8080)
         wait_until_connectable(8081)
-
-        response = urllib3.PoolManager().request(
-            'GET',
-            url='http://127.0.0.1:8080/',
-            headers={
-                'x-cf-forwarded-url': 'http://somehost.com/',
-                'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
-            },
+        copied_config = ROUTES_CONFIG.copy()
+        copied_config[0].update(
+            IP_DETERMINED_BY_X_FORWARDED_FOR_INDEX='-2',
+            IP_RANGES=['1.2.3.4/32'],
+            HOSTNAME_REGEX=r'^somehost\.com$'
         )
+        print(env)
+        with patch('main.get_route_config', return_value=('1.0.0', copied_config)):
+            response = urllib3.PoolManager().request(
+                'GET',
+                url='http://127.0.0.1:8080/',
+                headers={
+                    'x-cf-forwarded-url': 'http://somehost.com/',
+                    'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
+                },
+            )
         self.assertEqual(response.status, 403)
         self.assertIn(b'>1.1.1.1<', response.data)
         self.assertIn(b'>http://somehost.com/<', response.data)
@@ -1648,6 +1665,7 @@ def create_filter(port, env=()):
     def stop():
         process.terminate()
         process.wait()
+        # patcher.stop()
 
     with open('Procfile', 'r') as f:
         lines = f.readlines()
@@ -1655,6 +1673,7 @@ def create_filter(port, env=()):
         name, _, command = line.partition(':')
         if name.strip() == 'web':
             break
+    
     process = subprocess.Popen(['bash', '-c', command.strip()], env={
         **os.environ,
         'ROUTES__1__IP_DETERMINED_BY_X_FORWARDED_FOR_INDEX': '-3',
@@ -1666,6 +1685,36 @@ def create_filter(port, env=()):
         'LOG_LEVEL': 'DEBUG',
         **dict(env),
     })
+    print("ORIGIN_PROTO" in env)
+    # while True:
+    #     if "ORIGIN_PROTO" not in env:
+    #         print('still not loaded!!!!!!!!')
+    # patcher = patch('main.handle_request.get_route_config', return_value=('1.0.0', ROUTES_CONFIG))
+    # patcher.start()
+    # print(output)
+    # while True:
+    #     if 'Booting worker with pid:' in output:
+    #         print("YOOOOOOOOOO")
+    #         patcher = patch('main.get_route_config', return_value=('1.0.0', ROUTES_CONFIG))
+    #         patcher.start()
+    
+    
+    
+    # env_dict = dict(env)
+    # yaml_dict = {'VERSION': '1.0.0', 'ROUTES': [{'IP_RANGES': []}, {}]}
+    # for key in env_dict.keys():
+    #     if 'ROUTES' in key:
+    #         split_key = key.split("__")
+    #         route_idx = int(split_key[1]) - 1
+    #         if 'IP_RANGES' in key:
+    #             yaml_dict['ROUTES'][route_idx]['IP_RANGES'] = yaml_dict['ROUTES'][route_idx]['IP_RANGES'] + [env_dict[key]]
+    #         else:
+    #             yaml_dict['ROUTES'][route_idx][split_key[2]] = env_dict[key]
+
+    # if yaml_dict['ROUTES'][1] == {}:
+    #     yaml_dict['ROUTES'].pop(1)
+
+    # yaml.dump(yaml_dict, fo)
 
     return stop
 
