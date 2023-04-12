@@ -19,7 +19,7 @@ env = normalise_environment(os.environ)
 
 
 
-
+print(env['ORIGIN_PROTO'], 'ORIGIN PROTOOOOOOOOOOOOOOOOOOOOOOOOOOOO')
 
 # All requested URLs are eventually routed to to the same load balancer, which
 # uses the host header to route requests to the correct application. So as
