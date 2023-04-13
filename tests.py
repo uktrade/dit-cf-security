@@ -554,7 +554,7 @@ class TestCfSecurity(unittest.TestCase):
         while b'\r\n\r\n' not in response:
             response += sock.recv(4096)
         sock.close()
-        print(response)
+
         self.assertIn(b'set-cookie: name_a=value_a\r\n', response)
         self.assertIn(b'set-cookie: name_b=value_b\r\n', response)
 
