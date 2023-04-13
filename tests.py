@@ -33,13 +33,7 @@ from werkzeug.serving import (
     WSGIRequestHandler,
 )
 
-ROUTES_CONFIG = [
-    {
-    'IP_DETERMINED_BY_X_FORWARDED_FOR_INDEX': '-3',
-    'HOSTNAME_REGEX': '.*',
-    'IP_RANGES': '1.2.3.4/32',
-}
-]
+from utils import normalise_environment
 
 
 class TestCfSecurity(unittest.TestCase):
@@ -1665,44 +1659,12 @@ def create_filter(port, env=()):
         **dict(env),
     })
     
-    from utils import normalise_environment
+    # override default env values with those passed in by individual tests
     env_dict = {k: v for k, v in env}
     priority_dict = {1 : env_dict, 2: default_env}
     combined_dict = {**priority_dict[2], **priority_dict[1]} 
-    print(env_dict)
+
     config = normalise_environment(combined_dict)
-    
-    print('CONFIG:', config)
-    print("ORIGIN_PROTO" in env)
-    # while True:
-    #     if "ORIGIN_PROTO" not in env:
-    #         print('still not loaded!!!!!!!!')
-    # patcher = patch('main.handle_request.get_route_config', return_value=('1.0.0', ROUTES_CONFIG))
-    # patcher.start()
-    # print(output)
-    # while True:
-    #     if 'Booting worker with pid:' in output:
-    #         print("YOOOOOOOOOO")
-    #         patcher = patch('main.get_route_config', return_value=('1.0.0', ROUTES_CONFIG))
-    #         patcher.start()
-    
-    
-    
-    # env_dict = dict(env)
-    # yaml_dict = {'VERSION': '1.0.0', 'ROUTES': [{'IP_RANGES': []}, {}]}
-    # for key in env_dict.keys():
-    #     if 'ROUTES' in key:
-    #         split_key = key.split("__")
-    #         route_idx = int(split_key[1]) - 1
-    #         if 'IP_RANGES' in key:
-    #             yaml_dict['ROUTES'][route_idx]['IP_RANGES'] = yaml_dict['ROUTES'][route_idx]['IP_RANGES'] + [env_dict[key]]
-    #         else:
-    #             yaml_dict['ROUTES'][route_idx][split_key[2]] = env_dict[key]
-
-    # if yaml_dict['ROUTES'][1] == {}:
-    #     yaml_dict['ROUTES'].pop(1)
-
-    # print(yaml_dict)
     yaml.dump(config, fo)
 
     return stop
@@ -1812,10 +1774,3 @@ def wait_until_connectable(port, max_attempts=1000):
             if i == max_attempts - 1:
                 raise
             time.sleep(0.01)
-
-
-
-
-
-# test_gzipped
-# test_chunked_response
