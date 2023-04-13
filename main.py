@@ -14,12 +14,24 @@ from smart_open import open
 import urllib3
 import yaml
 
-app = Flask(__name__, template_folder=os.path.dirname(__file__))
+app = Flask(__name__, template_folder=os.path.dirname(__file__), static_folder=None)
 env = normalise_environment(os.environ)
 
 
+def get_route_config():
+    
+    # TODO: cache this
+    config_file = env.get("CONFIG_FILE", "s3://ipfilter-config/ROUTES.yaml")
 
-print(env['ORIGIN_PROTO'], 'ORIGIN PROTOOOOOOOOOOOOOOOOOOOOOOOOOOOO')
+    fd = open(config_file)
+    config = yaml.load(fd, Loader=yaml.Loader)
+
+    version = config["VERSION"]
+    routes = config["ROUTES"]
+
+    # if version changes, then update
+
+    return version, routes
 
 # All requested URLs are eventually routed to to the same load balancer, which
 # uses the host header to route requests to the correct application. So as
@@ -43,20 +55,6 @@ logger = logging.getLogger(__name__)
 
 request_id_alphabet = string.ascii_letters + string.digits
 
-def get_route_config():
-    
-    # TODO: cache this
-    config_file = env.get("CONFIG_FILE", "s3://ipfilter-config/ROUTES.yaml")
-
-    fd = open(config_file)
-    config = yaml.load(fd, Loader=yaml.Loader)
-
-    version = config["VERSION"]
-    routes = config["ROUTES"]
-
-    # if version changes, then update
-
-    return version, routes
 
 
 def render_access_denied(client_ip, forwarded_url, request_id):
