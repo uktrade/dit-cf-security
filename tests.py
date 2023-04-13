@@ -1,7 +1,7 @@
 import base64
 import gzip
 import json
-from multiprocessing import (
+from multiprocess import (
     Process,
 )
 from io import (
@@ -17,6 +17,8 @@ import time
 import unittest
 import urllib.parse
 import uuid
+import yaml
+from unittest.mock import patch
 
 from flask import (
     Flask,
@@ -30,6 +32,8 @@ from werkzeug.routing import (
 from werkzeug.serving import (
     WSGIRequestHandler,
 )
+
+from utils import normalise_environment
 
 
 class TestCfSecurity(unittest.TestCase):
@@ -74,7 +78,7 @@ class TestCfSecurity(unittest.TestCase):
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
-                'x-cf-forwarded-url': 'http://somehost.com/',
+                'host': 'somehost.com',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
             },
         ).headers['x-echo-header-host']
@@ -94,16 +98,19 @@ class TestCfSecurity(unittest.TestCase):
             ('a', 'b'),
             ('🍰', '😃'),
         ])
-        raw_uri_expected = f'http://127.0.0.1:8081{path}?{query}'
-        raw_uri_received = urllib3.PoolManager().request(
+        raw_uri_expected = f'{path}?{query}'
+        response = urllib3.PoolManager().request(
             'GET',
-            url='http://127.0.0.1:8080/',
+            url=f'http://127.0.0.1:8080/{path}?{query}',
             headers={
-                'x-cf-forwarded-url': raw_uri_expected,
+                'host': '127.0.0.1:8081',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
             },
-        ).headers['x-echo-raw-uri']
+        )
+        raw_uri_received = response.headers['x-echo-raw-uri']
+    
         self.assertEqual(raw_uri_expected, raw_uri_received)
+        self.assertEqual(response.headers['x-echo-header-Host'], '127.0.0.1:8081')
 
     def test_body_is_forwarded(self):
         self.addCleanup(create_filter(8080, (
@@ -536,9 +543,8 @@ class TestCfSecurity(unittest.TestCase):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.connect(('127.0.0.1', 8080))
         sock.send(
-            b'GET / HTTP/1.1\r\n' \
+            b'GET http://localtest.me:8081/multiple-cookies HTTP/1.1\r\n' \
             b'host:127.0.0.1\r\n' \
-            b'x-cf-forwarded-url:http://localtest.me:8081/multiple-cookies\r\n' \
             b'x-forwarded-for:1.2.3.4, 1.1.1.1, 1.1.1.1\r\n' \
             b'x-multiple-cookies:name_a=value_a,name_b=value_b\r\n' \
             b'\r\n'
@@ -606,9 +612,9 @@ class TestCfSecurity(unittest.TestCase):
         wait_until_connectable(8081)
         response = urllib3.PoolManager().request(
             'GET',
-            url='http://127.0.0.1:8080/',
+            url='http://127.0.0.1:8080/gzipped',
             headers={
-                'x-cf-forwarded-url': 'http://localtest.me:8081/gzipped',
+                'host': 'localtest.me:8081',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
             },
             body=b'something-to-zip',
@@ -656,9 +662,9 @@ class TestCfSecurity(unittest.TestCase):
 
         response = urllib3.PoolManager().request(
             'GET',
-            url='http://127.0.0.1:8080/',
+            url='http://127.0.0.1:8080/chunked',
             headers={
-                'x-cf-forwarded-url': 'http://127.0.0.1:8081/chunked',
+                'host': '127.0.0.1:8081',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
                 'x-chunked-num-bytes': '10000',
             },
@@ -682,11 +688,11 @@ class TestCfSecurity(unittest.TestCase):
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
-                'x-cf-forwarded-url': 'https://www.google.com/',
+                'host': 'www.google.com',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
             },
         ).data
-        self.assertIn(b'<title>https://www.google.com/</title>', data)
+        self.assertIn(b'<title>https://www.google.com/?</title>', data)
 
     def test_https_origin_not_exist_returns_500(self):
         self.addCleanup(create_filter(8080, (
@@ -722,26 +728,6 @@ class TestCfSecurity(unittest.TestCase):
         )
         self.assertEqual(response.status, 500)
 
-    def test_missing_x_cf_forwarded_url_returns_403_and_origin_not_called(self):
-        # Origin not running: if an attempt was made to connect to it, we
-        # would get a 500
-        self.addCleanup(create_filter(8080, (
-            ('ORIGIN_HOSTNAME', 'localhost:8081'),
-            ('ORIGIN_PROTO', 'http'),
-        )))
-        wait_until_connectable(8080)
-
-        response = urllib3.PoolManager().request(
-            'GET',
-            url='http://127.0.0.1:8080/',
-            headers={
-                'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
-            },
-        )
-        self.assertEqual(response.status, 403)
-        self.assertIn(b'See the Digital Workspace page', response.data)
-        self.assertIn(b'href="https://workspace.trade.gov.uk/working-at-dit/how-do-i/gain-access-to-a-trusted-network">', response.data)
-
     def test_missing_x_forwarded_for_returns_403_and_origin_not_called(self):
         # Origin not running: if an attempt was made to connect to it, we
         # would get a 500
@@ -750,15 +736,12 @@ class TestCfSecurity(unittest.TestCase):
             ('ORIGIN_PROTO', 'http'),
         )))
         wait_until_connectable(8080)
-
-        status = urllib3.PoolManager().request(
+        response = urllib3.PoolManager().request(
             'GET',
             url='http://127.0.0.1:8080/',
-            headers={
-                'x-cf-forwarded-url': 'http://127.0.0.1:8081/',
-            },
-        ).status
-        self.assertEqual(status, 403)
+        )
+        self.assertEqual(response.status, 403)
+        #TODO find way of capturing log output and check for missing x-forwarded message
 
     def test_incorrect_x_forwarded_for_returns_403_and_origin_not_called(self):
         # Origin not running: if an attempt was made to connect to it, we
@@ -805,19 +788,19 @@ class TestCfSecurity(unittest.TestCase):
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
-                'x-cf-forwarded-url': 'http://somehost.com/',
+                'host': 'somehost.com',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
             },
         )
         self.assertEqual(response.status, 403)
         self.assertIn(b'>1.1.1.1<', response.data)
-        self.assertIn(b'>http://somehost.com/<', response.data)
+        self.assertIn(b'>/?<', response.data)
 
         status = urllib3.PoolManager().request(
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
-                'x-cf-forwarded-url': 'http://somehost.com/',
+                'host': 'somehost.com',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1',
             },
         ).status
@@ -846,7 +829,7 @@ class TestCfSecurity(unittest.TestCase):
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
-                'x-cf-forwarded-url': 'http://somehost.com/',
+                'host': 'somehost.com',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.2',
             },
         )
@@ -857,7 +840,7 @@ class TestCfSecurity(unittest.TestCase):
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
-                'x-cf-forwarded-url': 'http://someotherhost.com/',
+                'host': 'someotherhost.com',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.2',
             },
         )
@@ -868,7 +851,7 @@ class TestCfSecurity(unittest.TestCase):
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
-                'x-cf-forwarded-url': 'http://someounknown.com/',
+                'host': 'someounknown.com',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.2',
             },
         )
@@ -891,7 +874,7 @@ class TestCfSecurity(unittest.TestCase):
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
-                'x-cf-forwarded-url': 'http://somehost.com/',
+                'host': 'somehost.com',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
             },
         ).status
@@ -913,7 +896,7 @@ class TestCfSecurity(unittest.TestCase):
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
-                'x-cf-forwarded-url': 'http://somehost.com/',
+                'host': 'somehost.com',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
             },
         ).status
@@ -938,7 +921,7 @@ class TestCfSecurity(unittest.TestCase):
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
-                'x-cf-forwarded-url': 'http://somehost.com/',
+                'host': 'somehost.com',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
             },
         ).status
@@ -960,7 +943,7 @@ class TestCfSecurity(unittest.TestCase):
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
-                'x-cf-forwarded-url': 'http://somehost.com/',
+                'host': 'somehost.com',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
             },
         ).status
@@ -970,7 +953,7 @@ class TestCfSecurity(unittest.TestCase):
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
-                'x-cf-forwarded-url': 'http://somehost.com/',
+                'host': 'somehost.com',
                 'x-forwarded-for': '1.2.3.5, 1.1.1.1, 1.1.1.1',
             },
         ).status
@@ -980,7 +963,7 @@ class TestCfSecurity(unittest.TestCase):
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
-                'x-cf-forwarded-url': 'http://somehost.com/',
+                'host': 'somehost.com',
                 'x-forwarded-for': '1.2.4.5, 1.1.1.1, 1.1.1.1',
             },
         ).status
@@ -1005,7 +988,7 @@ class TestCfSecurity(unittest.TestCase):
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
-                'x-cf-forwarded-url': 'http://somehost.com/',
+                'host': 'somehost.com',
                 'x-forwarded-for': '4.4.4.4, 1.1.1.1',
             },
         ).status
@@ -1029,7 +1012,7 @@ class TestCfSecurity(unittest.TestCase):
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
-                'x-cf-forwarded-url': 'http://somehost.com/',
+                'host': 'somehost.com',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
             },
         ).status
@@ -1039,7 +1022,7 @@ class TestCfSecurity(unittest.TestCase):
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
-                'x-cf-forwarded-url': 'http://somehost.com/',
+                'host': 'somehost.com',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
                 'x-cdn-secret': 'not-my-secret',
             },
@@ -1050,7 +1033,7 @@ class TestCfSecurity(unittest.TestCase):
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
-                'x-cf-forwarded-url': 'http://somehost.com/',
+                'host': 'somehost.com',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
                 'x-cdn-secret': 'my-secret',
             },
@@ -1077,7 +1060,7 @@ class TestCfSecurity(unittest.TestCase):
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
-                'x-cf-forwarded-url': 'http://somehost.com/',
+                'host': 'somehost.com',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
                 'x-cdn-secret': 'my-mangos',
             },
@@ -1088,7 +1071,7 @@ class TestCfSecurity(unittest.TestCase):
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
-                'x-cf-forwarded-url': 'http://somehost.com/',
+                'host': 'somehost.com',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
                 'x-cdn-secret': 'my-other-secret',
             },
@@ -1118,7 +1101,7 @@ class TestCfSecurity(unittest.TestCase):
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
-                'x-cf-forwarded-url': 'http://somehost.com/',
+                'host': 'somehost.com',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
                 'x-cdn-secret': 'my-mangos',
             },
@@ -1129,7 +1112,7 @@ class TestCfSecurity(unittest.TestCase):
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
-                'x-cf-forwarded-url': 'http://somehost.com/',
+                'host': 'somehost.com',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
                 'x-cdn-secret': 'my-other-secret',
             },
@@ -1159,7 +1142,7 @@ class TestCfSecurity(unittest.TestCase):
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
-                'x-cf-forwarded-url': 'http://somehost.com/',
+                'host': 'somehost.com',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
                 'x-cdn-secret': 'my-mangos',
                 'x-shared-secret': 'my-other-secret',
@@ -1188,7 +1171,7 @@ class TestCfSecurity(unittest.TestCase):
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
-                'x-cf-forwarded-url': 'http://somehost.com/',
+                'host': 'somehost.com',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
                 'authorization': 'Basic ' + base64.b64encode(b'my-user:my-secret').decode('utf-8'),
             },
@@ -1199,7 +1182,7 @@ class TestCfSecurity(unittest.TestCase):
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
-                'x-cf-forwarded-url': 'http://somehost.com/',
+                'host': 'somehost.com',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
                 'authorization': 'Basic ' + base64.b64encode(b'my-user:my-mangos').decode('utf-8'),
             },
@@ -1208,9 +1191,9 @@ class TestCfSecurity(unittest.TestCase):
 
         response = urllib3.PoolManager().request(
             'GET',
-            url='http://127.0.0.1:8080/',
+            url='http://127.0.0.1:8080/__some_path',
             headers={
-                'x-cf-forwarded-url': 'http://somehost.com/__some_path',
+                'host': 'somehost.com',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
                 'authorization': 'Basic ' + base64.b64encode(b'my-user:my-mangos').decode('utf-8'),
             },
@@ -1220,9 +1203,9 @@ class TestCfSecurity(unittest.TestCase):
 
         response = urllib3.PoolManager().request(
             'GET',
-            url='http://127.0.0.1:8080/',
+            url='http://127.0.0.1:8080/__some_path',
             headers={
-                'x-cf-forwarded-url': 'http://somehost.com/__some_path',
+                'host': 'somehost.com',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
                 'authorization': 'Basic ' + base64.b64encode(b'my-user:my-secret').decode('utf-8'),
             },
@@ -1252,7 +1235,7 @@ class TestCfSecurity(unittest.TestCase):
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
-                'x-cf-forwarded-url': 'http://somehost.com/',
+                'host': 'somehost.com',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
                 'authorization': 'Basic ' + base64.b64encode(b'my-user:my-mangos').decode('utf-8'),
             },
@@ -1263,7 +1246,7 @@ class TestCfSecurity(unittest.TestCase):
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
-                'x-cf-forwarded-url': 'http://somehost.com/',
+                'host': 'somehost.com',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
                 'authorization': 'Basic ' + base64.b64encode(b'my-other-user:my-other-mangos').decode('utf-8'),
             },
@@ -1272,9 +1255,9 @@ class TestCfSecurity(unittest.TestCase):
 
         response = urllib3.PoolManager().request(
             'GET',
-            url='http://127.0.0.1:8080/',
+            url='http://127.0.0.1:8080/__some_path',
             headers={
-                'x-cf-forwarded-url': 'http://somehost.com/__some_path',
+                'host': 'somehost.com',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
                 'authorization': 'Basic ' + base64.b64encode(b'my-other-user:my-other-secret').decode('utf-8'),
             },
@@ -1304,7 +1287,7 @@ class TestCfSecurity(unittest.TestCase):
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
-                'x-cf-forwarded-url': 'http://somehost.com/',
+                'host': 'somehost.com',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
                 'authorization': 'Basic ' + base64.b64encode(b'my-user:my-mangos').decode('utf-8'),
             },
@@ -1315,7 +1298,7 @@ class TestCfSecurity(unittest.TestCase):
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
-                'x-cf-forwarded-url': 'http://somehost.com/',
+                'host': 'somehost.com',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
                 'authorization': 'Basic ' + base64.b64encode(b'my-other-user:my-other-mangos').decode('utf-8'),
             },
@@ -1324,9 +1307,9 @@ class TestCfSecurity(unittest.TestCase):
 
         response = urllib3.PoolManager().request(
             'GET',
-            url='http://127.0.0.1:8080/',
+            url='http://127.0.0.1:8080/__some_path',
             headers={
-                'x-cf-forwarded-url': 'http://somehost.com/__some_path',
+                'host': 'somehost.com',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
                 'authorization': 'Basic ' + base64.b64encode(b'my-user:my-secret').decode('utf-8'),
             },
@@ -1336,9 +1319,9 @@ class TestCfSecurity(unittest.TestCase):
 
         response = urllib3.PoolManager().request(
             'GET',
-            url='http://127.0.0.1:8080/',
+            url='http://127.0.0.1:8080/__some_path',
             headers={
-                'x-cf-forwarded-url': 'http://somehost.com/__some_path',
+                'host': 'somehost.com',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
                 'authorization': 'Basic ' + base64.b64encode(b'my-user:my-mangos').decode('utf-8'),
             },
@@ -1347,9 +1330,9 @@ class TestCfSecurity(unittest.TestCase):
 
         response = urllib3.PoolManager().request(
             'GET',
-            url='http://127.0.0.1:8080/',
+            url='http://127.0.0.1:8080/__some_other_path',
             headers={
-                'x-cf-forwarded-url': 'http://somehost.com/__some_other_path',
+                'host': 'somehost.com',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
                 'authorization': 'Basic ' + base64.b64encode(b'my-other-user:my-other-secret').decode('utf-8'),
             },
@@ -1359,9 +1342,9 @@ class TestCfSecurity(unittest.TestCase):
 
         response = urllib3.PoolManager().request(
             'GET',
-            url='http://127.0.0.1:8080/',
+            url='http://127.0.0.1:8080/__some_path',
             headers={
-                'x-cf-forwarded-url': 'http://somehost.com/__some_other_path',
+                'host': 'somehost.com',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
                 'authorization': 'Basic ' + base64.b64encode(b'my-other-user:my-other-mangos').decode('utf-8'),
             },
@@ -1372,7 +1355,7 @@ class TestCfSecurity(unittest.TestCase):
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
-                'x-cf-forwarded-url': 'http://somehost.com/',
+                'host': 'somehost.com',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
                 'authorization': 'Basic ' + base64.b64encode(b'my-other-user:my-other-secret').decode('utf-8'),
             },
@@ -1404,7 +1387,7 @@ class TestCfSecurity(unittest.TestCase):
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
-                'x-cf-forwarded-url': 'http://somehost.com/',
+                'host': 'somehost.com',
                 'x-forwarded-for': '5.5.5.5, 1.1.1.1, 1.1.1.1',
                 'authorization': 'Basic ' + base64.b64encode(b'my-user:my-secret').decode('utf-8'),
             },
@@ -1415,7 +1398,7 @@ class TestCfSecurity(unittest.TestCase):
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
-                'x-cf-forwarded-url': 'http://somehost.com/',
+                'host': 'somehost.com',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
                 'authorization': 'Basic ' + base64.b64encode(b'my-user:my-mangos').decode('utf-8'),
             },
@@ -1426,7 +1409,7 @@ class TestCfSecurity(unittest.TestCase):
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
-                'x-cf-forwarded-url': 'http://somehost.com/',
+                'host': 'somehost.com',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
                 'authorization': 'Basic ' + base64.b64encode(b'my-other-user:my-other-mangos').decode('utf-8'),
             },
@@ -1437,7 +1420,7 @@ class TestCfSecurity(unittest.TestCase):
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
-                'x-cf-forwarded-url': 'http://somehost.com/',
+                'host': 'somehost.com',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
                 'authorization': 'Basic ' + base64.b64encode(b'my-other-user:my-other-secret').decode('utf-8'),
             },
@@ -1469,7 +1452,7 @@ class TestCfSecurity(unittest.TestCase):
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
-                'x-cf-forwarded-url': 'http://somehost.com/',
+                'host': 'somehost.com',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
                 'authorization': 'Basic ' + base64.b64encode(b'my-user:my-mangos').decode('utf-8'),
             },
@@ -1480,7 +1463,7 @@ class TestCfSecurity(unittest.TestCase):
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
-                'x-cf-forwarded-url': 'http://somehost.com/',
+                'host': 'somehost.com',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
                 'authorization': 'Basic ' + base64.b64encode(b'my-other-user:my-other-mangos').decode('utf-8'),
             },
@@ -1489,9 +1472,9 @@ class TestCfSecurity(unittest.TestCase):
 
         response = urllib3.PoolManager().request(
             'GET',
-            url='http://127.0.0.1:8080/',
+            url='http://127.0.0.1:8080/__some_path',
             headers={
-                'x-cf-forwarded-url': 'http://somehost.com/__some_path',
+                'host': 'somehost.com',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
                 'authorization': 'Basic ' + base64.b64encode(b'my-other-user:my-other-secret').decode('utf-8'),
             },
@@ -1509,7 +1492,7 @@ class TestCfSecurity(unittest.TestCase):
             'GET',
             url='http://127.0.0.1:8080/',
             headers={
-                'x-cf-forwarded-url': 'http://127.0.0.1:8081/',
+                'host': '127.0.0.1:8081',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
             },
         ).status
@@ -1532,9 +1515,9 @@ class TestCfSecurity(unittest.TestCase):
 
         response = urllib3.PoolManager().request(
             'GET',
-            url='http://127.0.0.1:8080/',
+            url='http://127.0.0.1:8080/__some_path',
             headers={
-                'x-cf-forwarded-url': 'http://somehost.com/__some_path',
+                'host': 'somehost.com',
                 'x-forwarded-for': '1.2.3.5, 1.1.1.1, 1.1.1.1',
                 'authorization': 'Basic ' + base64.b64encode(b'my-user:my-mangos').decode('utf-8'),
             },
@@ -1544,9 +1527,9 @@ class TestCfSecurity(unittest.TestCase):
 
         response = urllib3.PoolManager().request(
             'GET',
-            url='http://127.0.0.1:8080/',
+            url='http://127.0.0.1:8080/__some_path',
             headers={
-                'x-cf-forwarded-url': 'http://somehost.com/__some_path',
+                'host': 'somehost.com',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
                 'authorization': 'Basic ' + base64.b64encode(b'my-user:my-mangos').decode('utf-8'),
             },
@@ -1573,9 +1556,9 @@ class TestCfSecurity(unittest.TestCase):
 
         response = urllib3.PoolManager().request(
             'GET',
-            url='http://127.0.0.1:8080/',
+            url='http://127.0.0.1:8080/__some_path',
             headers={
-                'x-cf-forwarded-url': 'http://somehost.com/__some_path',
+                'host': 'somehost.com',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
                 'x-cdn-secret': 'my-mangos',
                 'authorization': 'Basic ' + base64.b64encode(b'my-user:my-mangos').decode('utf-8'),
@@ -1586,9 +1569,9 @@ class TestCfSecurity(unittest.TestCase):
 
         response = urllib3.PoolManager().request(
             'GET',
-            url='http://127.0.0.1:8080/',
+            url='http://127.0.0.1:8080/__some_path',
             headers={
-                'x-cf-forwarded-url': 'http://somehost.com/__some_path',
+                'host': 'somehost.com',
                 'x-forwarded-for': '1.2.3.4, 1.1.1.1, 1.1.1.1',
                 'x-cdn-secret': 'my-secret',
                 'authorization': 'Basic ' + base64.b64encode(b'my-user:my-mangos').decode('utf-8'),
@@ -1610,9 +1593,9 @@ class TestCfSecurity(unittest.TestCase):
 
         response = urllib3.PoolManager().request(
             'GET',
-            url='http://127.0.0.1:8080/',
+            url='http://127.0.0.1:8080/__some_path',
             headers={
-                'x-cf-forwarded-url': 'http://somehost.com/__some_path',
+                'host': 'somehost.com',
                 'x-forwarded-for': '1.1.1.1, 1.1.1.1, 1.1.1.1',
                 'x-cdn-secret': 'my-mangos',
                 'X-B3-Traceid': '1234magictraceid',
@@ -1621,33 +1604,35 @@ class TestCfSecurity(unittest.TestCase):
         self.assertEqual(response.status, 403)
         self.assertIn(b'>1234magictraceid<', response.data)
 
-        def test_client_ipv6_is_handled(self):
-            self.addCleanup(create_filter(8080, (
-                ('ORIGIN_HOSTNAME', 'localhost:8081'),
-                ('ORIGIN_PROTO', 'http'),
-                ('ROUTES__1__IP_DETERMINED_BY_X_FORWARDED_FOR_INDEX', '-2'),
-                ('ROUTES__1__IP_RANGES__1', '4.4.4.4/32'),
-                ('ROUTES__1__HOSTNAME_REGEX', r'^somehost\.com$'),
-            )))
-            self.addCleanup(create_origin(8081))
-            wait_until_connectable(8080)
-            wait_until_connectable(8081)
+    def test_client_ipv6_is_handled(self):
+        self.addCleanup(create_filter(8080, (
+            ('ORIGIN_HOSTNAME', 'localhost:8081'),
+            ('ORIGIN_PROTO', 'http'),
+            ('ROUTES__1__IP_DETERMINED_BY_X_FORWARDED_FOR_INDEX', '-2'),
+            ('ROUTES__1__IP_RANGES__1', '4.4.4.4/32'),
+            ('ROUTES__1__HOSTNAME_REGEX', r'^somehost\.com$'),
+        )))
+        self.addCleanup(create_origin(8081))
+        wait_until_connectable(8080)
+        wait_until_connectable(8081)
 
-            status = urllib3.PoolManager().request(
-                'GET',
-                url='http://127.0.0.1:8080/',
-                headers={
-                    'x-cf-forwarded-url': 'http://somehost.com/',
-                    'x-forwarded-for': '2a00:23c4:ce80:a01:4979:78c8:535c:bc16, 1.1.1.1',
-                },
-            ).status
-            self.assertEqual(status, 403)
+        status = urllib3.PoolManager().request(
+            'GET',
+            url='http://127.0.0.1:8080/',
+            headers={
+                'host': 'somehost.com',
+                'x-forwarded-for': '2a00:23c4:ce80:a01:4979:78c8:535c:bc16, 1.1.1.1',
+            },
+        ).status
+        self.assertEqual(status, 403)
 
 
 def create_filter(port, env=()):
     def stop():
         process.terminate()
         process.wait()
+        fo.close()
+        os.remove('new_test.yaml')
 
     with open('Procfile', 'r') as f:
         lines = f.readlines()
@@ -1655,8 +1640,9 @@ def create_filter(port, env=()):
         name, _, command = line.partition(':')
         if name.strip() == 'web':
             break
-    process = subprocess.Popen(['bash', '-c', command.strip()], env={
-        **os.environ,
+    
+    fo = open('new_test.yaml', 'w')
+    default_env = {
         'ROUTES__1__IP_DETERMINED_BY_X_FORWARDED_FOR_INDEX': '-3',
         'ROUTES__1__HOSTNAME_REGEX': '.*',
         'ROUTES__1__IP_RANGES__1': '1.2.3.4/32',
@@ -1664,8 +1650,22 @@ def create_filter(port, env=()):
         'EMAIL_NAME': 'the Department for International Trade WebOps team',
         'EMAIL': 'test@test.test',
         'LOG_LEVEL': 'DEBUG',
+        'CONFIG_FILE': fo.name,
+        'VERSION': '1.0.0'
+    }
+    process = subprocess.Popen(['bash', '-c', command.strip()], env={
+        **os.environ,
+        **default_env,
         **dict(env),
     })
+    
+    # override default env values with those passed in by individual tests
+    env_dict = {k: v for k, v in env}
+    priority_dict = {1 : env_dict, 2: default_env}
+    combined_dict = {**priority_dict[2], **priority_dict[1]} 
+
+    config = normalise_environment(combined_dict)
+    yaml.dump(config, fo)
 
     return stop
 

@@ -19,7 +19,7 @@ env = normalise_environment(os.environ)
 
 
 def get_route_config():
-
+    
     # TODO: cache this
     config_file = env.get("CONFIG_FILE", "s3://ipfilter-config/ROUTES.yaml")
 
@@ -32,7 +32,6 @@ def get_route_config():
     # if version changes, then update
 
     return version, routes
-
 
 # All requested URLs are eventually routed to to the same load balancer, which
 # uses the host header to route requests to the correct application. So as
@@ -55,6 +54,7 @@ logging.basicConfig(stream=sys.stdout, level=env['LOG_LEVEL'])
 logger = logging.getLogger(__name__)
 
 request_id_alphabet = string.ascii_letters + string.digits
+
 
 
 def render_access_denied(client_ip, forwarded_url, request_id):
@@ -202,7 +202,7 @@ def handle_request(u_path):
         shared_secret['NAME'].lower()
         for i, _ in enumerate(routes)
         for shared_secret in shared_secrets[i]
-    )) + ('host', 'connection')
+    )) + ('connection',)
 
     if should_request_auth:
         return Response(
