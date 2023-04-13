@@ -14,7 +14,7 @@ from smart_open import open
 import urllib3
 import yaml
 
-app = Flask(__name__, template_folder=os.path.dirname(__file__), static_folder=None)
+app = Flask(__name__, template_folder=os.path.dirname(__file__))
 env = normalise_environment(os.environ)
 
 
@@ -204,7 +204,7 @@ def handle_request(u_path):
         shared_secret['NAME'].lower()
         for i, _ in enumerate(routes)
         for shared_secret in shared_secrets[i]
-    )) + ('host', 'connection')
+    )) + ('connection',)
 
     if should_request_auth:
         return Response(
