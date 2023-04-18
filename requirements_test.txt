@@ -10,6 +10,8 @@ coverage==5.0.4
     # via -r requirements_test.in
 flask==1.1.1
     # via -r requirements.in
+Flask-Caching==2.0.2
+    # via -r requirements.in
 gevent==1.4.0
     # via gunicorn
 greenlet==0.4.15

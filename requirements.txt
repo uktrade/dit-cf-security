@@ -14,6 +14,8 @@ click==7.1.1
     # via flask
 flask==1.1.1
     # via -r requirements.in
+Flask-Caching==2.0.2
+    # via -r requirements.in
 gevent==1.5.0
     # via -r requirements.in
 greenlet==0.4.15
