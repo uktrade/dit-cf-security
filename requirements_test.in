@@ -1,7 +1,7 @@
 -r requirements.in
 
-coverage==5.0.4
-jinja2==2.11.3
-multiprocess==0.70.14
-pyyaml==6.0
-smart-open==6.3.0
+coverage
+jinja2
+multiprocess
+pyyaml
+smart-open
