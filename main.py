@@ -89,11 +89,15 @@ def handle_request(u_path):
         app.config["IPFILTER_ENABLED"]
         and (
             not app.config["PROTECTED_PATHS"]
-            or any(path.startswith(request.path) for path in app.config["PROTECTED_PATHS"])
+            or any(
+                path.startswith(request.path) for path in app.config["PROTECTED_PATHS"]
+            )
         )
         and (
             not app.config["PUBLIC_PATHS"]
-            or not any(path.startswith(request.path) for path in app.config["PUBLIC_PATHS"])
+            or not any(
+                path.startswith(request.path) for path in app.config["PUBLIC_PATHS"]
+            )
         )
     )
 

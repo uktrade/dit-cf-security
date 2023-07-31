@@ -6,8 +6,9 @@ import yaml
 
 
 class Environ(UserDict):
-    def get_value(self, key, /, default=None, allow_environment_override=False):
+    """Handle app configuration from os.environ with supprt for copilot environment specific configuration and type conversion."""
 
+    def get_value(self, key, /, default=None, allow_environment_override=False):
         environment = self.data["COPILOT_ENVIRONMENT"].upper()
 
         overridden_key = f"{environment.upper()}_{key}"
@@ -24,10 +25,18 @@ class Environ(UserDict):
         raise KeyError(f"{key} not found")
 
     def int(self, key, /, default=None, allow_environment_override=False):
-        return int(self.get_value(key, default=default, allow_environment_override=allow_environment_override))
+        return int(
+            self.get_value(
+                key,
+                default=default,
+                allow_environment_override=allow_environment_override,
+            )
+        )
 
     def list(self, key, /, default=None, allow_environment_override=False):
-        value = self.get_value(key, default=default, allow_environment_override=allow_environment_override)
+        value = self.get_value(
+            key, default=default, allow_environment_override=allow_environment_override
+        )
 
         if not isinstance(value, str):
             return value
@@ -38,7 +47,9 @@ class Environ(UserDict):
         return [v.strip() for v in value.split(",")]
 
     def bool(self, key, /, default=None, allow_environment_override=False):
-        value = self.get_value(key, default=default, allow_environment_override=allow_environment_override)
+        value = self.get_value(
+            key, default=default, allow_environment_override=allow_environment_override
+        )
 
         if isinstance(value, str):
             return value.strip().lower() == "true"
@@ -72,7 +83,7 @@ def get_appconfig_configuration(appconfig_path):
 
 
 def get_ipfilter_config(appconfig_paths):
-    """Retreive a list of """
+    """Retreive a list of app config configurations and combine them into a single dict."""
     ips = []
     for config_path in appconfig_paths:
         config = get_appconfig_configuration(config_path)

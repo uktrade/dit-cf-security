@@ -36,9 +36,11 @@ from config import Environ
 
 class EnvironTestCase(unittest.TestCase):
     def test_missing_key_raises_keyerror(self):
-        env = Environ({
-            "COPILOT_ENVIRONMENT": "staging",
-        })
+        env = Environ(
+            {
+                "COPILOT_ENVIRONMENT": "staging",
+            }
+        )
 
         with self.assertRaises(KeyError):
             env.get_value("MISSING")
@@ -86,13 +88,9 @@ class EnvironTestCase(unittest.TestCase):
                 "EMPTY": "",
             }
         )
-        self.assertEqual(
-            env.list("MULTIPLE"), ["profile1", "profile2", "profile3"]
-        )
+        self.assertEqual(env.list("MULTIPLE"), ["profile1", "profile2", "profile3"])
         self.assertEqual(env.list("SINGLE_ITEM"), ["False"])
-        self.assertEqual(
-            env.list("EMPTY"), []
-        )
+        self.assertEqual(env.list("EMPTY"), [])
 
     def test_type_conversion_int(self):
         env = Environ(
@@ -101,9 +99,7 @@ class EnvironTestCase(unittest.TestCase):
                 "TEST": "-1",
             }
         )
-        self.assertEqual(
-            env.int("TEST"), -1
-        )
+        self.assertEqual(env.int("TEST"), -1)
 
     def test_type_with_environment_overrides(self):
         env = Environ(
@@ -115,7 +111,10 @@ class EnvironTestCase(unittest.TestCase):
         )
 
         self.assertEqual(env.get_value("RANDOM_FIELD"), "base-value")
-        self.assertEqual(env.get_value("RANDOM_FIELD", allow_environment_override=True), "environment-override")
+        self.assertEqual(
+            env.get_value("RANDOM_FIELD", allow_environment_override=True),
+            "environment-override",
+        )
 
 
 class ConfigurationTestCase(unittest.TestCase):
@@ -215,8 +214,7 @@ class ConfigurationTestCase(unittest.TestCase):
         self.assertNotIn("x-echo-header-connection", response.headers)
 
     def test_appconfig_agent_with_valid_ip(self):
-        self.addCleanup(
-            create_appconfig_agent(2772))
+        self.addCleanup(create_appconfig_agent(2772))
 
         wait_until_connectable(2772)
 
@@ -312,7 +310,7 @@ class ProxyTestCase(unittest.TestCase):
                     ("ORIGIN_HOSTNAME", "127.0.0.1:8081"),
                     ("ORIGIN_PROTO", "http"),
                     ("COPILOT_ENVIRONMENT", "staging"),
-                    ("APPCONFIG_PROFILES", "testapp:testenv:testconfig")
+                    ("APPCONFIG_PROFILES", "testapp:testenv:testconfig"),
                 ),
             )
         )
@@ -1235,7 +1233,7 @@ class IpFilterLogicTestCase(unittest.TestCase):
                 (
                     ("ORIGIN_HOSTNAME", "localhost:8081"),
                     ("ORIGIN_PROTO", "http"),
-                    ("COPILOT_ENVIRONMENT", "staging")
+                    ("COPILOT_ENVIRONMENT", "staging"),
                 ),
             )
         )
@@ -1263,12 +1261,17 @@ class IpFilterLogicTestCase(unittest.TestCase):
         self.assertEqual(statuses, [403] * len(x_forwarded_for_headers))
 
     def test_x_forwarded_for_index_respected(self):
-        self.addCleanup(create_appconfig_agent(2772, {
-            "mytest:env:iplist": """
+        self.addCleanup(
+            create_appconfig_agent(
+                2772,
+                {
+                    "mytest:env:iplist": """
 IpRanges:
   - 1.2.3.4/32
 """
-        }))
+                },
+            )
+        )
         self.addCleanup(
             create_filter(
                 8080,
@@ -1277,7 +1280,7 @@ IpRanges:
                     ("ORIGIN_PROTO", "http"),
                     ("IP_DETERMINED_BY_X_FORWARDED_FOR_INDEX", "-2"),
                     ("COPILOT_ENVIRONMENT", "staging"),
-                    ("APPCONFIG_PROFILES", "mytest:env:iplist")
+                    ("APPCONFIG_PROFILES", "mytest:env:iplist"),
                 ),
             )
         )
@@ -1313,12 +1316,17 @@ IpRanges:
         self.assertEqual(status, 200)
 
     def test_ip_matching_cidr_respected(self):
-        self.addCleanup(create_appconfig_agent(2772, {
-            "testapp:testenv:testconfig2": """
+        self.addCleanup(
+            create_appconfig_agent(
+                2772,
+                {
+                    "testapp:testenv:testconfig2": """
 IpRanges:
     - 1.2.3.0/24
 """
-        }))
+                },
+            )
+        )
         self.addCleanup(
             create_filter(
                 8080,
@@ -1327,7 +1335,10 @@ IpRanges:
                     ("ORIGIN_PROTO", "http"),
                     ("IP_DETERMINED_BY_X_FORWARDED_FOR_INDEX", "-3"),
                     ("COPILOT_ENVIRONMENT", "staging"),
-                    ("APPCONFIG_PROFILES", "testapp:testenv:testconfig,testapp:testenv:testconfig2")
+                    (
+                        "APPCONFIG_PROFILES",
+                        "testapp:testenv:testconfig,testapp:testenv:testconfig2",
+                    ),
                 ),
             )
         )
@@ -1379,13 +1390,17 @@ IpRanges:
         self.assertEqual(status, 403)
 
     def test_trace_id_is_reported(self):
-        self.addCleanup(create_appconfig_agent(2772,
-        {
-            "testapp:testenv:testconfig2": """
+        self.addCleanup(
+            create_appconfig_agent(
+                2772,
+                {
+                    "testapp:testenv:testconfig2": """
 IpRanges:
     - 1.2.3.4/32
 """
-        }))
+                },
+            )
+        )
         self.addCleanup(
             create_filter(
                 8080,
@@ -1518,10 +1533,10 @@ def create_origin(port):
         num_bytes = int(request.headers["x-chunked-num-bytes"])
 
         def data():
-            chunk = b'-'
+            chunk = b"-"
             for _ in range(0, num_bytes):
-                yield hex(len(chunk))[2:].encode() + b'\r\n' + chunk + b'\r\n'
-            yield b'0\r\n\r\n'
+                yield hex(len(chunk))[2:].encode() + b"\r\n" + chunk + b"\r\n"
+            yield b"0\r\n\r\n"
 
         return Response(
             data(),
@@ -1558,7 +1573,6 @@ def create_origin(port):
         # have no response body
 
         def _extract_path(url):
-
             parts = urllib.parse.urlparse(url)
             return parts.path + "?" + parts.query
 
