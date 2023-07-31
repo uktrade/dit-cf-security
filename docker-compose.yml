@@ -5,12 +5,12 @@ services:
       - "8000:8000"
     environment:
       PORT: 8000
+      COPILOT_ENVIRONMENT: staging
       EMAIL_NAME: 'The Department for International Trade WebOps team'
       EMAIL: test@test.test
       LOG_LEVEL: DEBUG
       ORIGIN_HOSTNAME: localhost:8080
       ORIGIN_PROTO: http
-      CONFIG_FILE: 's3://ipfilter-config/ROUTES.yaml'
   app:
     image: nginx:latest
     ports:
