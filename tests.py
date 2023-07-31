@@ -188,16 +188,7 @@ class ConfigurationTestCase(unittest.TestCase):
 
     def test_appconfig_agent_with_valid_ip(self):
         self.addCleanup(
-            create_appconfig_agent(
-                2772,
-                {
-                    "testapp:testenv:testconfig": """
-IpRanges:
-    - 1.1.1.1/32
-"""
-                },
-            )
-        )
+            create_appconfig_agent(2772))
 
         wait_until_connectable(2772)
 
@@ -220,18 +211,22 @@ class ProxyTestCase(unittest.TestCase):
             wait_until_connectable(8080, max_attempts=10)
 
     def test_method_is_forwarded(self):
+        self.addCleanup(create_appconfig_agent(2772))
         self.addCleanup(
             create_filter(
                 8080,
                 (
                     ("ORIGIN_HOSTNAME", "localhost:8081"),
                     ("ORIGIN_PROTO", "http"),
+                    ("COPILOT_ENVIRONMENT", "staging"),
+                    ("APPCONFIG_PROFILES", "testapp:testenv:testconfig"),
                 ),
             )
         )
         self.addCleanup(create_origin(8081))
         wait_until_connectable(8080)
         wait_until_connectable(8081)
+        wait_until_connectable(2772)
 
         methods = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"]
         echo_methods = [
@@ -240,7 +235,6 @@ class ProxyTestCase(unittest.TestCase):
                 method,
                 url="http://127.0.0.1:8080/",
                 headers={
-                    "x-cf-forwarded-url": "http://127.0.0.1:8081/",
                     "x-forwarded-for": "1.2.3.4, 1.1.1.1, 1.1.1.1",
                 },
             )
@@ -250,18 +244,22 @@ class ProxyTestCase(unittest.TestCase):
         self.assertEqual(methods, echo_methods)
 
     def test_host_is_forwarded(self):
+        self.addCleanup(create_appconfig_agent(2772))
         self.addCleanup(
             create_filter(
                 8080,
                 (
                     ("ORIGIN_HOSTNAME", "localhost:8081"),
                     ("ORIGIN_PROTO", "http"),
+                    ("COPILOT_ENVIRONMENT", "staging"),
+                    ("APPCONFIG_PROFILES", "testapp:testenv:testconfig"),
                 ),
             )
         )
         self.addCleanup(create_origin(8081))
         wait_until_connectable(8080)
         wait_until_connectable(8081)
+        wait_until_connectable(2772)
 
         host = (
             urllib3.PoolManager()
@@ -278,18 +276,22 @@ class ProxyTestCase(unittest.TestCase):
         self.assertEqual(host, "somehost.com")
 
     def test_path_and_query_is_forwarded(self):
+        self.addCleanup(create_appconfig_agent(2772))
         self.addCleanup(
             create_filter(
                 8080,
                 (
                     ("ORIGIN_HOSTNAME", "127.0.0.1:8081"),
                     ("ORIGIN_PROTO", "http"),
+                    ("COPILOT_ENVIRONMENT", "staging"),
+                    ("APPCONFIG_PROFILES", "testapp:testenv:testconfig")
                 ),
             )
         )
         self.addCleanup(create_origin(8081))
         wait_until_connectable(8080)
         wait_until_connectable(8081)
+        wait_until_connectable(2772)
 
         path = urllib.parse.quote("/a/£/💾")
         query = urllib.parse.urlencode(
@@ -313,18 +315,22 @@ class ProxyTestCase(unittest.TestCase):
         self.assertEqual(response.headers["x-echo-header-Host"], "127.0.0.1:8081")
 
     def test_body_is_forwarded(self):
+        self.addCleanup(create_appconfig_agent(2772))
         self.addCleanup(
             create_filter(
                 8080,
                 (
                     ("ORIGIN_HOSTNAME", "localhost:8081"),
                     ("ORIGIN_PROTO", "http"),
+                    ("COPILOT_ENVIRONMENT", "staging"),
+                    ("APPCONFIG_PROFILES", "testapp:testenv:testconfig"),
                 ),
             )
         )
         self.addCleanup(create_origin(8081))
         wait_until_connectable(8080)
         wait_until_connectable(8081)
+        wait_until_connectable(2772)
 
         method_bodies_expected = [
             ("GET", uuid.uuid4().bytes * 1),
@@ -342,7 +348,6 @@ class ProxyTestCase(unittest.TestCase):
                     method,
                     url="http://127.0.0.1:8080/",
                     headers={
-                        "x-cf-forwarded-url": "http://127.0.0.1:8081/",
                         "x-forwarded-for": "1.2.3.4, 1.1.1.1, 1.1.1.1",
                     },
                     body=body,
@@ -354,17 +359,21 @@ class ProxyTestCase(unittest.TestCase):
         self.assertEqual(method_bodies_expected, method_bodies_received)
 
     def test_status_is_forwarded(self):
+        self.addCleanup(create_appconfig_agent(2772))
         self.addCleanup(
             create_filter(
                 8080,
                 (
                     ("ORIGIN_HOSTNAME", "localhost:8081"),
                     ("ORIGIN_PROTO", "http"),
+                    ("COPILOT_ENVIRONMENT", "staging"),
+                    ("APPCONFIG_PROFILES", "testapp:testenv:testconfig"),
                 ),
             )
         )
         self.addCleanup(create_origin(8081))
         wait_until_connectable(8080)
+        wait_until_connectable(8081)
         wait_until_connectable(8081)
 
         method_statuses_expected = list(
@@ -382,7 +391,6 @@ class ProxyTestCase(unittest.TestCase):
                         method,
                         url="http://127.0.0.1:8080/",
                         headers={
-                            "x-cf-forwarded-url": "http://127.0.0.1:8081/",
                             "x-forwarded-for": "1.2.3.4, 1.1.1.1, 1.1.1.1",
                             "x-echo-response-status": status,
                         },
@@ -395,24 +403,27 @@ class ProxyTestCase(unittest.TestCase):
         self.assertEqual(method_statuses_expected, method_statuses_received)
 
     def test_connection_is_not_forwarded(self):
+        self.addCleanup(create_appconfig_agent(2772))
         self.addCleanup(
             create_filter(
                 8080,
                 (
                     ("ORIGIN_HOSTNAME", "localhost:8081"),
                     ("ORIGIN_PROTO", "http"),
+                    ("COPILOT_ENVIRONMENT", "staging"),
+                    ("APPCONFIG_PROFILES", "testapp:testenv:testconfig"),
                 ),
             )
         )
         self.addCleanup(create_origin(8081))
         wait_until_connectable(8080)
         wait_until_connectable(8081)
+        wait_until_connectable(2772)
 
         response = urllib3.PoolManager().request(
             "GET",
             url="http://127.0.0.1:8080/",
             headers={
-                "x-cf-forwarded-url": "http://anyhost.com/",
                 "x-forwarded-for": "1.2.3.4, 1.1.1.1, 1.1.1.1",
                 "connection": "close",
             },
@@ -422,12 +433,15 @@ class ProxyTestCase(unittest.TestCase):
         self.assertNotIn("x-echo-header-connection", response.headers)
 
     def test_no_issue_if_origin_restarted(self):
+        self.addCleanup(create_appconfig_agent(2772))
         self.addCleanup(
             create_filter(
                 8080,
                 (
                     ("ORIGIN_HOSTNAME", "localhost:8081"),
                     ("ORIGIN_PROTO", "http"),
+                    ("COPILOT_ENVIRONMENT", "staging"),
+                    ("APPCONFIG_PROFILES", "testapp:testenv:testconfig"),
                 ),
             )
         )
@@ -435,12 +449,12 @@ class ProxyTestCase(unittest.TestCase):
         self.addCleanup(stop_origin_1)
         wait_until_connectable(8080)
         wait_until_connectable(8081)
+        wait_until_connectable(2772)
 
         response_1 = urllib3.PoolManager().request(
             "GET",
-            url="http://127.0.0.1:8080/",
+            url="http://127.0.0.1:8080/some-path",
             headers={
-                "x-cf-forwarded-url": "http://anydomain.com/some-path",
                 "x-forwarded-for": "1.2.3.4, 1.1.1.1, 1.1.1.1",
             },
             body=b"some-data",
@@ -456,9 +470,8 @@ class ProxyTestCase(unittest.TestCase):
 
         response_2 = urllib3.PoolManager().request(
             "GET",
-            url="http://127.0.0.1:8080/",
+            url="http://127.0.0.1:8080/some-path",
             headers={
-                "x-cf-forwarded-url": "http://anydomain.com/some-path",
                 "x-forwarded-for": "1.2.3.4, 1.1.1.1, 1.1.1.1",
             },
             body=b"some-more-data",
@@ -472,18 +485,22 @@ class ProxyTestCase(unittest.TestCase):
         self.assertNotEqual(remote_port_1, remote_port_2)
 
     def test_no_issue_if_request_unfinished(self):
+        self.addCleanup(create_appconfig_agent(2772))
         self.addCleanup(
             create_filter(
                 8080,
                 (
                     ("ORIGIN_HOSTNAME", "localhost:8081"),
                     ("ORIGIN_PROTO", "http"),
+                    ("COPILOT_ENVIRONMENT", "staging"),
+                    ("APPCONFIG_PROFILES", "testapp:testenv:testconfig"),
                 ),
             )
         )
         self.addCleanup(create_origin(8081))
         wait_until_connectable(8080)
         wait_until_connectable(8081)
+        wait_until_connectable(2772)
 
         class BodyException(Exception):
             pass
@@ -500,7 +517,6 @@ class ProxyTestCase(unittest.TestCase):
                 "http://127.0.0.1:8080/",
                 headers={
                     "content-length": "200000",
-                    "x-cf-forwarded-url": "http://127.0.0.1:8081/",
                     "x-forwarded-for": "1.2.3.4, 1.1.1.1, 1.1.1.1",
                 },
                 body=body(),
@@ -510,7 +526,6 @@ class ProxyTestCase(unittest.TestCase):
             "GET",
             url="http://127.0.0.1:8080/",
             headers={
-                "x-cf-forwarded-url": "http://127.0.0.1:8081/",
                 "x-forwarded-for": "1.2.3.4, 1.1.1.1, 1.1.1.1",
             },
             body="some-data",
@@ -518,18 +533,22 @@ class ProxyTestCase(unittest.TestCase):
         self.assertEqual(response.data, b"some-data")
 
     def test_request_header_is_forwarded(self):
+        self.addCleanup(create_appconfig_agent(2772))
         self.addCleanup(
             create_filter(
                 8080,
                 (
                     ("ORIGIN_HOSTNAME", "localhost:8081"),
                     ("ORIGIN_PROTO", "http"),
+                    ("COPILOT_ENVIRONMENT", "staging"),
+                    ("APPCONFIG_PROFILES", "testapp:testenv:testconfig"),
                 ),
             )
         )
         self.addCleanup(create_origin(8081))
         wait_until_connectable(8080)
         wait_until_connectable(8081)
+        wait_until_connectable(2772)
 
         response_header = (
             urllib3.PoolManager()
@@ -537,7 +556,6 @@ class ProxyTestCase(unittest.TestCase):
                 "GET",
                 url="http://127.0.0.1:8080/",
                 headers={
-                    "x-cf-forwarded-url": "http://127.0.0.1:8081/",
                     "x-forwarded-for": "1.2.3.4, 1.1.1.1, 1.1.1.1",
                     "some-header": "some-value",
                 },
@@ -547,18 +565,22 @@ class ProxyTestCase(unittest.TestCase):
         self.assertEqual(response_header, "some-value")
 
     def test_content_length_is_forwarded(self):
+        self.addCleanup(create_appconfig_agent(2772))
         self.addCleanup(
             create_filter(
                 8080,
                 (
                     ("ORIGIN_HOSTNAME", "localhost:8081"),
                     ("ORIGIN_PROTO", "http"),
+                    ("COPILOT_ENVIRONMENT", "staging"),
+                    ("APPCONFIG_PROFILES", "testapp:testenv:testconfig"),
                 ),
             )
         )
         self.addCleanup(create_origin(8081))
         wait_until_connectable(8080)
         wait_until_connectable(8081)
+        wait_until_connectable(2772)
 
         headers = (
             urllib3.PoolManager()
@@ -566,7 +588,6 @@ class ProxyTestCase(unittest.TestCase):
                 "GET",
                 url="http://127.0.0.1:8080/",
                 headers={
-                    "x-cf-forwarded-url": "http://127.0.0.1:8081/",
                     "x-forwarded-for": "1.2.3.4, 1.1.1.1, 1.1.1.1",
                 },
                 body=b"some-data",
@@ -579,18 +600,22 @@ class ProxyTestCase(unittest.TestCase):
         self.assertNotIn("x-echo-header-transfer-encoding", headers)
 
     def test_response_header_is_forwarded(self):
+        self.addCleanup(create_appconfig_agent(2772))
         self.addCleanup(
             create_filter(
                 8080,
                 (
                     ("ORIGIN_HOSTNAME", "localhost:8081"),
                     ("ORIGIN_PROTO", "http"),
+                    ("COPILOT_ENVIRONMENT", "staging"),
+                    ("APPCONFIG_PROFILES", "testapp:testenv:testconfig"),
                 ),
             )
         )
         self.addCleanup(create_origin(8081))
         wait_until_connectable(8080)
         wait_until_connectable(8081)
+        wait_until_connectable(2772)
 
         response_header = (
             urllib3.PoolManager()
@@ -598,7 +623,6 @@ class ProxyTestCase(unittest.TestCase):
                 "GET",
                 url="http://127.0.0.1:8080/",
                 headers={
-                    "x-cf-forwarded-url": "http://127.0.0.1:8081/",
                     "x-forwarded-for": "1.2.3.4, 1.1.1.1, 1.1.1.1",
                     "x-echo-response-header-some-header": "some-value",
                 },
@@ -608,18 +632,22 @@ class ProxyTestCase(unittest.TestCase):
         self.assertEqual(response_header, "some-value")
 
     def test_content_disposition_with_latin_1_character_is_forwarded(self):
+        self.addCleanup(create_appconfig_agent(2772))
         self.addCleanup(
             create_filter(
                 8080,
                 (
                     ("ORIGIN_HOSTNAME", "localhost:8081"),
                     ("ORIGIN_PROTO", "http"),
+                    ("COPILOT_ENVIRONMENT", "staging"),
+                    ("APPCONFIG_PROFILES", "testapp:testenv:testconfig"),
                 ),
             )
         )
         self.addCleanup(create_origin(8081))
         wait_until_connectable(8080)
         wait_until_connectable(8081)
+        wait_until_connectable(2772)
 
         response_header = (
             urllib3.PoolManager()
@@ -627,7 +655,6 @@ class ProxyTestCase(unittest.TestCase):
                 "GET",
                 url="http://127.0.0.1:8080/",
                 headers={
-                    "x-cf-forwarded-url": "http://127.0.0.1:8081/",
                     "x-forwarded-for": "1.2.3.4, 1.1.1.1, 1.1.1.1",
                     "x-echo-response-header-content-disposition": 'attachment; filename="Ö"',
                 },
@@ -638,18 +665,22 @@ class ProxyTestCase(unittest.TestCase):
         self.assertEqual(response_header, 'attachment; filename="Ö"')
 
     def test_get_content_length_is_forwarded(self):
+        self.addCleanup(create_appconfig_agent(2772))
         self.addCleanup(
             create_filter(
                 8080,
                 (
                     ("ORIGIN_HOSTNAME", "localhost:8081"),
                     ("ORIGIN_PROTO", "http"),
+                    ("COPILOT_ENVIRONMENT", "staging"),
+                    ("APPCONFIG_PROFILES", "testapp:testenv:testconfig"),
                 ),
             )
         )
         self.addCleanup(create_origin(8081))
         wait_until_connectable(8080)
         wait_until_connectable(8081)
+        wait_until_connectable(2772)
 
         content_length = (
             urllib3.PoolManager()
@@ -659,7 +690,6 @@ class ProxyTestCase(unittest.TestCase):
                 body=b"Something" * 10000000,
                 url="http://127.0.0.1:8080/",
                 headers={
-                    "x-cf-forwarded-url": "http://127.0.0.1:8081/",
                     "x-forwarded-for": "1.2.3.4, 1.1.1.1, 1.1.1.1",
                 },
             )
@@ -668,18 +698,22 @@ class ProxyTestCase(unittest.TestCase):
         self.assertEqual(content_length, "90000000")
 
     def test_head_content_length_is_forwarded(self):
+        self.addCleanup(create_appconfig_agent(2772))
         self.addCleanup(
             create_filter(
                 8080,
                 (
                     ("ORIGIN_HOSTNAME", "localhost:8081"),
                     ("ORIGIN_PROTO", "http"),
+                    ("COPILOT_ENVIRONMENT", "staging"),
+                    ("APPCONFIG_PROFILES", "testapp:testenv:testconfig"),
                 ),
             )
         )
         self.addCleanup(create_origin(8081))
         wait_until_connectable(8080)
         wait_until_connectable(8081)
+        wait_until_connectable(2772)
 
         content_length = (
             urllib3.PoolManager()
@@ -687,7 +721,6 @@ class ProxyTestCase(unittest.TestCase):
                 "HEAD",
                 url="http://127.0.0.1:8080/",
                 headers={
-                    "x-cf-forwarded-url": "http://127.0.0.1:8081/",
                     "x-forwarded-for": "1.2.3.4, 1.1.1.1, 1.1.1.1",
                     "x-echo-response-header-content-length": "12345678",
                 },
@@ -698,18 +731,22 @@ class ProxyTestCase(unittest.TestCase):
         self.assertEqual(content_length, "0")
 
     def test_request_cookie_is_forwarded(self):
+        self.addCleanup(create_appconfig_agent(2772))
         self.addCleanup(
             create_filter(
                 8080,
                 (
                     ("ORIGIN_HOSTNAME", "localtest.me:8081"),
                     ("ORIGIN_PROTO", "http"),
+                    ("COPILOT_ENVIRONMENT", "staging"),
+                    ("APPCONFIG_PROFILES", "testapp:testenv:testconfig"),
                 ),
             )
         )
         self.addCleanup(create_origin(8081))
         wait_until_connectable(8080)
         wait_until_connectable(8081)
+        wait_until_connectable(2772)
 
         response_header = (
             urllib3.PoolManager()
@@ -717,7 +754,6 @@ class ProxyTestCase(unittest.TestCase):
                 "GET",
                 url="http://127.0.0.1:8080/",
                 headers={
-                    "x-cf-forwarded-url": "http://localtest.me:8081/",
                     "x-forwarded-for": "1.2.3.4, 1.1.1.1, 1.1.1.1",
                     "cookie": "my_name=my_value",
                 },
@@ -732,7 +768,6 @@ class ProxyTestCase(unittest.TestCase):
                 "GET",
                 url="http://127.0.0.1:8080/",
                 headers={
-                    "x-cf-forwarded-url": "http://localtest.me:8081/",
                     "x-forwarded-for": "1.2.3.4, 1.1.1.1, 1.1.1.1",
                     "cookie": "my_name=my_value; my_name_b=my_other_value",
                 },
@@ -742,18 +777,22 @@ class ProxyTestCase(unittest.TestCase):
         self.assertEqual(response_header, "my_name=my_value; my_name_b=my_other_value")
 
     def test_response_cookie_is_forwarded(self):
+        self.addCleanup(create_appconfig_agent(2772))
         self.addCleanup(
             create_filter(
                 8080,
                 (
                     ("ORIGIN_HOSTNAME", "localtest.me:8081"),
                     ("ORIGIN_PROTO", "http"),
+                    ("COPILOT_ENVIRONMENT", "staging"),
+                    ("APPCONFIG_PROFILES", "testapp:testenv:testconfig"),
                 ),
             )
         )
         self.addCleanup(create_origin(8081))
         wait_until_connectable(8080)
         wait_until_connectable(8081)
+        wait_until_connectable(2772)
 
         response_header = (
             urllib3.PoolManager()
@@ -761,7 +800,6 @@ class ProxyTestCase(unittest.TestCase):
                 "GET",
                 url="http://127.0.0.1:8080/",
                 headers={
-                    "x-cf-forwarded-url": "http://localtest.me:8081/",
                     "x-forwarded-for": "1.2.3.4, 1.1.1.1, 1.1.1.1",
                     "x-echo-response-header-set-cookie": "my_name=my_value",
                 },
@@ -780,9 +818,8 @@ class ProxyTestCase(unittest.TestCase):
             urllib3.PoolManager()
             .request(
                 "GET",
-                url="http://127.0.0.1:8080/",
+                url="http://127.0.0.1:8080/path",
                 headers={
-                    "x-cf-forwarded-url": "http://subdomain.localtest.me:8081/path",
                     "x-forwarded-for": "1.2.3.4, 1.1.1.1, 1.1.1.1",
                     "x-echo-response-header-set-cookie": full_cookie_value,
                 },
@@ -797,9 +834,8 @@ class ProxyTestCase(unittest.TestCase):
             urllib3.PoolManager()
             .request(
                 "GET",
-                url="http://127.0.0.1:8080/",
+                url="http://127.0.0.1:8080/path",
                 headers={
-                    "x-cf-forwarded-url": "http://localtest.me:8081/path",
                     "x-forwarded-for": "1.2.3.4, 1.1.1.1, 1.1.1.1",
                     "x-echo-response-header-set-cookie": "my_name=my_value; Max-Age=100",
                 },
@@ -809,18 +845,22 @@ class ProxyTestCase(unittest.TestCase):
         self.assertEqual(response_header, "my_name=my_value; Max-Age=100")
 
     def test_multiple_response_cookies_are_forwarded(self):
+        self.addCleanup(create_appconfig_agent(2772))
         self.addCleanup(
             create_filter(
                 8080,
                 (
                     ("ORIGIN_HOSTNAME", "localtest.me:8081"),
                     ("ORIGIN_PROTO", "http"),
+                    ("COPILOT_ENVIRONMENT", "staging"),
+                    ("APPCONFIG_PROFILES", "testapp:testenv:testconfig"),
                 ),
             )
         )
         self.addCleanup(create_origin(8081))
         wait_until_connectable(8080)
         wait_until_connectable(8081)
+        wait_until_connectable(2772)
 
         # We make sure we don't depend or are thwarted by magic that an HTTP
         # client in the tests does regarding multiple HTTP headers of the same
@@ -844,18 +884,22 @@ class ProxyTestCase(unittest.TestCase):
         self.assertIn(b"set-cookie: name_b=value_b\r\n", response)
 
     def test_cookie_not_stored(self):
+        self.addCleanup(create_appconfig_agent(2772))
         self.addCleanup(
             create_filter(
                 8080,
                 (
                     ("ORIGIN_HOSTNAME", "localtest.me:8081"),
                     ("ORIGIN_PROTO", "http"),
+                    ("COPILOT_ENVIRONMENT", "staging"),
+                    ("APPCONFIG_PROFILES", "testapp:testenv:testconfig"),
                 ),
             )
         )
         self.addCleanup(create_origin(8081))
         wait_until_connectable(8080)
         wait_until_connectable(8081)
+        wait_until_connectable(2772)
 
         # Ensure that the filter itself don't store cookies set by the origin
         cookie_header = "x-echo-header-cookie"
@@ -865,7 +909,6 @@ class ProxyTestCase(unittest.TestCase):
                 "GET",
                 url="http://127.0.0.1:8080/",
                 headers={
-                    "x-cf-forwarded-url": "http://localtest.me:8081/",
                     "x-forwarded-for": "1.2.3.4, 1.1.1.1, 1.1.1.1",
                     "x-echo-response-header-set-cookie": "my_name=my_value_a; Domain=.localtest.me; Path=/path",
                 },
@@ -882,7 +925,6 @@ class ProxyTestCase(unittest.TestCase):
                 "GET",
                 url="http://127.0.0.1:8080/",
                 headers={
-                    "x-cf-forwarded-url": "http://localtest.me:8081/",
                     "x-forwarded-for": "1.2.3.4, 1.1.1.1, 1.1.1.1",
                 },
             )
@@ -898,7 +940,6 @@ class ProxyTestCase(unittest.TestCase):
                 "GET",
                 url="http://127.0.0.1:8080/",
                 headers={
-                    "x-cf-forwarded-url": "http://localtest.me:8081/",
                     "x-forwarded-for": "1.2.3.4, 1.1.1.1, 1.1.1.1",
                     "cookie": "my_name=my_value_b",
                 },
@@ -908,18 +949,23 @@ class ProxyTestCase(unittest.TestCase):
         self.assertEqual(cookie_header_value, "my_name=my_value_b")
 
     def test_gzipped(self):
+        self.addCleanup(create_appconfig_agent(2772))
         self.addCleanup(
             create_filter(
                 8080,
                 (
                     ("ORIGIN_HOSTNAME", "localtest.me:8081"),
                     ("ORIGIN_PROTO", "http"),
+                    ("COPILOT_ENVIRONMENT", "staging"),
+                    ("APPCONFIG_PROFILES", "testapp:testenv:testconfig"),
                 ),
             )
         )
         self.addCleanup(create_origin(8081))
         wait_until_connectable(8080)
         wait_until_connectable(8081)
+        wait_until_connectable(2772)
+
         response = urllib3.PoolManager().request(
             "GET",
             url="http://127.0.0.1:8080/gzipped",
@@ -934,18 +980,22 @@ class ProxyTestCase(unittest.TestCase):
         self.assertIn("content-length", response.headers)
 
     def test_slow_upload(self):
+        self.addCleanup(create_appconfig_agent(2772))
         self.addCleanup(
             create_filter(
                 8080,
                 (
                     ("ORIGIN_HOSTNAME", "localhost:8081"),
                     ("ORIGIN_PROTO", "http"),
+                    ("COPILOT_ENVIRONMENT", "staging"),
+                    ("APPCONFIG_PROFILES", "testapp:testenv:testconfig"),
                 ),
             )
         )
         self.addCleanup(create_origin(8081))
         wait_until_connectable(8080)
         wait_until_connectable(8081)
+        wait_until_connectable(2772)
 
         num_bytes = 35
 
@@ -962,7 +1012,6 @@ class ProxyTestCase(unittest.TestCase):
                 "http://127.0.0.1:8080/",
                 headers={
                     "content-length": str(num_bytes),
-                    "x-cf-forwarded-url": "http://127.0.0.1:8081/",
                     "x-forwarded-for": "1.2.3.4, 1.1.1.1, 1.1.1.1",
                 },
                 body=body(),
@@ -972,18 +1021,22 @@ class ProxyTestCase(unittest.TestCase):
         self.assertEqual(data, b"-" * num_bytes)
 
     def test_chunked_response(self):
+        self.addCleanup(create_appconfig_agent(2772))
         self.addCleanup(
             create_filter(
                 8080,
                 (
                     ("ORIGIN_HOSTNAME", "localhost:8081"),
                     ("ORIGIN_PROTO", "http"),
+                    ("COPILOT_ENVIRONMENT", "staging"),
+                    ("APPCONFIG_PROFILES", "testapp:testenv:testconfig"),
                 ),
             )
         )
         self.addCleanup(create_origin(8081))
         wait_until_connectable(8080)
         wait_until_connectable(8081)
+        wait_until_connectable(2772)
 
         response = urllib3.PoolManager().request(
             "GET",
@@ -1001,16 +1054,20 @@ class ProxyTestCase(unittest.TestCase):
         self.assertEqual(response.data, b"-" * 10000)
 
     def test_https(self):
+        self.addCleanup(create_appconfig_agent(2772))
         self.addCleanup(
             create_filter(
                 8080,
                 (
                     ("ORIGIN_HOSTNAME", "www.google.com"),
                     ("ORIGIN_PROTO", "https"),
+                    ("COPILOT_ENVIRONMENT", "staging"),
+                    ("APPCONFIG_PROFILES", "testapp:testenv:testconfig"),
                 ),
             )
         )
         wait_until_connectable(8080)
+        wait_until_connectable(2772)
 
         # On the one hand not great to depend on a 3rd party/external site,
         # but it does test that the filter can connect to a regular/real site
@@ -1028,63 +1085,74 @@ class ProxyTestCase(unittest.TestCase):
             )
             .data
         )
-        self.assertIn(b"<title>https://www.google.com/?</title>", data)
+        self.assertIn(b"<title>https://www.google.com/</title>", data)
 
     def test_https_origin_not_exist_returns_500(self):
+        self.addCleanup(create_appconfig_agent(2772))
         self.addCleanup(
             create_filter(
                 8080,
                 (
                     ("ORIGIN_HOSTNAME", "does.not.exist"),
                     ("ORIGIN_PROTO", "https"),
+                    ("COPILOT_ENVIRONMENT", "staging"),
+                    ("APPCONFIG_PROFILES", "testapp:testenv:testconfig"),
                 ),
             )
         )
         wait_until_connectable(8080)
+        wait_until_connectable(2772)
 
         response = urllib3.PoolManager().request(
             "GET",
             url="http://127.0.0.1:8080/",
             headers={
-                "x-cf-forwarded-url": "https://www.google.com/",
                 "x-forwarded-for": "1.2.3.4, 1.1.1.1, 1.1.1.1",
             },
         )
         self.assertEqual(response.status, 500)
 
     def test_http_origin_not_exist_returns_500(self):
+        self.addCleanup(create_appconfig_agent(2772))
         self.addCleanup(
             create_filter(
                 8080,
                 (
                     ("ORIGIN_HOSTNAME", "does.not.exist"),
                     ("ORIGIN_PROTO", "http"),
+                    ("COPILOT_ENVIRONMENT", "staging"),
+                    ("APPCONFIG_PROFILES", "testapp:testenv:testconfig"),
                 ),
             )
         )
         wait_until_connectable(8080)
+        wait_until_connectable(2772)
 
         response = urllib3.PoolManager().request(
             "GET",
             url="http://127.0.0.1:8080/",
             headers={
-                "x-cf-forwarded-url": "http://www.google.com/",
                 "x-forwarded-for": "1.2.3.4, 1.1.1.1, 1.1.1.1",
             },
         )
         self.assertEqual(response.status, 500)
 
     def test_not_running_origin_returns_500(self):
+        self.addCleanup(create_appconfig_agent(2772))
         self.addCleanup(
             create_filter(
                 8080,
                 (
                     ("ORIGIN_HOSTNAME", "localhost:8081"),
                     ("ORIGIN_PROTO", "http"),
+                    ("COPILOT_ENVIRONMENT", "staging"),
+                    ("APPCONFIG_PROFILES", "testapp:testenv:testconfig"),
                 ),
             )
         )
         wait_until_connectable(8080)
+        wait_until_connectable(2772)
+
         status = (
             urllib3.PoolManager()
             .request(
@@ -1106,16 +1174,20 @@ class IpFilterLogicTestCase(unittest.TestCase):
     def test_missing_x_forwarded_for_returns_403_and_origin_not_called(self):
         # Origin not running: if an attempt was made to connect to it, we
         # would get a 500
+        self.addCleanup(create_appconfig_agent(2772))
         self.addCleanup(
             create_filter(
                 8080,
                 (
                     ("ORIGIN_HOSTNAME", "localhost:8081"),
                     ("ORIGIN_PROTO", "http"),
+                    ("COPILOT_ENVIRONMENT", "staging"),
+                    ("APPCONFIG_PROFILES", "testapp:testenv:testconfig"),
                 ),
             )
         )
         wait_until_connectable(8080)
+        wait_until_connectable(2772)
         response = urllib3.PoolManager().request(
             "GET",
             url="http://127.0.0.1:8080/",
@@ -1126,12 +1198,14 @@ class IpFilterLogicTestCase(unittest.TestCase):
     def test_incorrect_x_forwarded_for_returns_403_and_origin_not_called(self):
         # Origin not running: if an attempt was made to connect to it, we
         # would get a 500
+        self.addCleanup(create_appconfig_agent(2772))
         self.addCleanup(
             create_filter(
                 8080,
                 (
                     ("ORIGIN_HOSTNAME", "localhost:8081"),
                     ("ORIGIN_PROTO", "http"),
+                    ("COPILOT_ENVIRONMENT", "staging")
                 ),
             )
         )
@@ -1150,7 +1224,6 @@ class IpFilterLogicTestCase(unittest.TestCase):
                 "GET",
                 url="http://127.0.0.1:8080/",
                 headers={
-                    "x-cf-forwarded-url": "http://127.0.0.1:8081/",
                     "x-forwarded-for": x_forwarded_for_header,
                 },
             )
@@ -1160,21 +1233,28 @@ class IpFilterLogicTestCase(unittest.TestCase):
         self.assertEqual(statuses, [403] * len(x_forwarded_for_headers))
 
     def test_x_forwarded_for_index_respected(self):
+        self.addCleanup(create_appconfig_agent(2772, {
+            "mytest:env:iplist": """
+IpRanges:
+  - 1.2.3.4/32
+"""
+        }))
         self.addCleanup(
             create_filter(
                 8080,
                 (
                     ("ORIGIN_HOSTNAME", "localhost:8081"),
                     ("ORIGIN_PROTO", "http"),
-                    ("ROUTES__1__IP_DETERMINED_BY_X_FORWARDED_FOR_INDEX", "-2"),
-                    ("ROUTES__1__IP_RANGES__1", "1.2.3.4/32"),
-                    ("ROUTES__1__HOSTNAME_REGEX", r"^somehost\.com$"),
+                    ("IP_DETERMINED_BY_X_FORWARDED_FOR_INDEX", "-2"),
+                    ("COPILOT_ENVIRONMENT", "staging"),
+                    ("APPCONFIG_PROFILES", "mytest:env:iplist")
                 ),
             )
         )
         self.addCleanup(create_origin(8081))
         wait_until_connectable(8080)
         wait_until_connectable(8081)
+        wait_until_connectable(2772)
 
         response = urllib3.PoolManager().request(
             "GET",
@@ -1186,7 +1266,7 @@ class IpFilterLogicTestCase(unittest.TestCase):
         )
         self.assertEqual(response.status, 403)
         self.assertIn(b">1.1.1.1<", response.data)
-        self.assertIn(b">/?<", response.data)
+        self.assertIn(b">/<", response.data)
 
         status = (
             urllib3.PoolManager()
@@ -1203,21 +1283,28 @@ class IpFilterLogicTestCase(unittest.TestCase):
         self.assertEqual(status, 200)
 
     def test_ip_matching_cidr_respected(self):
+        self.addCleanup(create_appconfig_agent(2772, {
+            "testapp:testenv:testconfig2": """
+IpRanges:
+    - 1.2.3.0/24
+"""
+        }))
         self.addCleanup(
             create_filter(
                 8080,
                 (
                     ("ORIGIN_HOSTNAME", "localhost:8081"),
                     ("ORIGIN_PROTO", "http"),
-                    ("ROUTES__1__IP_DETERMINED_BY_X_FORWARDED_FOR_INDEX", "-3"),
-                    ("ROUTES__1__IP_RANGES__1", "1.2.3.0/24"),
-                    ("ROUTES__1__HOSTNAME_REGEX", r"^somehost\.com$"),
+                    ("IP_DETERMINED_BY_X_FORWARDED_FOR_INDEX", "-3"),
+                    ("COPILOT_ENVIRONMENT", "staging"),
+                    ("APPCONFIG_PROFILES", "testapp:testenv:testconfig,testapp:testenv:testconfig2")
                 ),
             )
         )
         self.addCleanup(create_origin(8081))
         wait_until_connectable(8080)
         wait_until_connectable(8081)
+        wait_until_connectable(2772)
 
         status = (
             urllib3.PoolManager()
@@ -1262,20 +1349,29 @@ class IpFilterLogicTestCase(unittest.TestCase):
         self.assertEqual(status, 403)
 
     def test_trace_id_is_reported(self):
+        self.addCleanup(create_appconfig_agent(2772,
+        {
+            "testapp:testenv:testconfig2": """
+IpRanges:
+    - 1.2.3.4/32
+"""
+        }))
         self.addCleanup(
             create_filter(
                 8080,
                 (
                     ("ORIGIN_HOSTNAME", "localhost:8081"),
                     ("ORIGIN_PROTO", "http"),
-                    ("ROUTES__1__IP_DETERMINED_BY_X_FORWARDED_FOR_INDEX", "-3"),
-                    ("ROUTES__1__IP_RANGES__1", "1.2.3.4/32"),
+                    ("IP_DETERMINED_BY_X_FORWARDED_FOR_INDEX", "-2"),
+                    ("COPILOT_ENVIRONMENT", "staging"),
+                    ("APPCONFIG_PROFILES", "testapp:testenv:testconfig2"),
                 ),
             )
         )
         self.addCleanup(create_origin(8081))
         wait_until_connectable(8080)
         wait_until_connectable(8081)
+        wait_until_connectable(2772)
 
         response = urllib3.PoolManager().request(
             "GET",
@@ -1291,21 +1387,21 @@ class IpFilterLogicTestCase(unittest.TestCase):
         self.assertIn(b">1234magictraceid<", response.data)
 
     def test_client_ipv6_is_handled(self):
+        self.addCleanup(create_appconfig_agent(2772))
         self.addCleanup(
             create_filter(
                 8080,
                 (
                     ("ORIGIN_HOSTNAME", "localhost:8081"),
                     ("ORIGIN_PROTO", "http"),
-                    ("ROUTES__1__IP_DETERMINED_BY_X_FORWARDED_FOR_INDEX", "-2"),
-                    ("ROUTES__1__IP_RANGES__1", "4.4.4.4/32"),
-                    ("ROUTES__1__HOSTNAME_REGEX", r"^somehost\.com$"),
+                    ("COPILOT_ENVIRONMENT", "staging"),
                 ),
             )
         )
         self.addCleanup(create_origin(8081))
         wait_until_connectable(8080)
         wait_until_connectable(8081)
+        wait_until_connectable(2772)
 
         status = (
             urllib3.PoolManager()
@@ -1427,11 +1523,17 @@ def create_origin(port):
     def echo(path="/"):
         # Echo via headers to be able to assert more on HEAD requests that
         # have no response body
+
+        def _extract_path(url):
+
+            parts = urllib.parse.urlparse(url)
+            return parts.path + "?" + parts.query
+
         response_header_prefix = "x-echo-response-header-"
         headers = (
             [
                 ("x-echo-method", request.method),
-                ("x-echo-raw-uri", request.environ["RAW_URI"]),
+                ("x-echo-raw-uri", _extract_path(request.environ["RAW_URI"])),
                 ("x-echo-remote-port", request.environ["REMOTE_PORT"]),
             ]
             + [("x-echo-header-" + k, v) for k, v in request.headers.items()]
@@ -1457,7 +1559,14 @@ def create_origin(port):
     return stop
 
 
-def create_appconfig_agent(port, config_map):
+def create_appconfig_agent(port, config_map=None):
+    default_config_map = {
+        "testapp:testenv:testconfig": """
+IpRanges:
+  - 1.1.1.1/32
+"""
+    }
+
     def start():
         # Avoid warning about this not a prod server
         os.environ["FLASK_ENV"] = "development"
@@ -1489,11 +1598,13 @@ def create_appconfig_agent(port, config_map):
     def config_view(application, environment, configuration):
         key = f"{application}:{environment}:{configuration}"
 
-        if key not in config_map:
+        config = default_config_map | (config_map or {})
+
+        if key not in config:
             abort(404)
 
         return Response(
-            config_map[key],
+            config[key],
             headers={},
             status=200,
         )
