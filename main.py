@@ -7,18 +7,14 @@ from flask import request, Response, render_template
 from random import choices
 import urllib3
 
-# from app import app
 from config import get_ipfilter_config
 
 from flask import Flask
-from flask_caching import Cache
 
 from pathlib import Path
 
 app = Flask(__name__, template_folder=Path(__file__).parent, static_folder=None)
 app.config.from_object("settings")
-
-cache = Cache(app)
 
 
 PoolClass = (

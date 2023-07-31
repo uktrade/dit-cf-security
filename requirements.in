@@ -1,5 +1,4 @@
 flask==1.1.1
-Flask-Caching==2.0.2
 gunicorn
 urllib3
 jinja2
