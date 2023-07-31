@@ -3,6 +3,4 @@ gunicorn
 urllib3
 jinja2
 
-smart_open
-smart_open[s3]
 pyyaml
