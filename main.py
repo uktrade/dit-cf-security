@@ -1,16 +1,17 @@
+# -*- coding: utf-8 -*-
+import logging
 import os
 import re
-import sys
-import logging
-from ipaddress import ip_address, ip_network
-import urllib.parse
 import string
+import sys
+import urllib.parse
+from ipaddress import ip_address, ip_network
+from random import choices
+
+import urllib3
+from flask import Flask, Response, render_template, request
 
 from utils import constant_time_is_equal, normalise_environment
-
-from flask import Flask, request, Response, render_template
-from random import choices
-import urllib3
 
 app = Flask(__name__, template_folder=os.path.dirname(__file__))
 env = normalise_environment(os.environ)
@@ -27,80 +28,93 @@ env = normalise_environment(os.environ)
 #   latency, and (hopefully) debuggability since there are fewer hops;
 # - we avoid routing requests to arbitrary targets on the internet as part of
 #   a defense-in-depth/least-privilege strategy.
-PoolClass = \
-    urllib3.HTTPConnectionPool if env['ORIGIN_PROTO'] == 'http' else \
-    urllib3.HTTPSConnectionPool
-http = PoolClass(env['ORIGIN_HOSTNAME'], maxsize=1000)
+PoolClass = (
+    urllib3.HTTPConnectionPool
+    if env["ORIGIN_PROTO"] == "http"
+    else urllib3.HTTPSConnectionPool
+)
+http = PoolClass(env["ORIGIN_HOSTNAME"], maxsize=1000)
 
-logging.basicConfig(stream=sys.stdout, level=env['LOG_LEVEL'])
+logging.basicConfig(stream=sys.stdout, level=env["LOG_LEVEL"])
 logger = logging.getLogger(__name__)
 
 request_id_alphabet = string.ascii_letters + string.digits
 
 
 def render_access_denied(client_ip, forwarded_url, request_id):
-    return (render_template(
-        'access-denied.html',
-        client_ip=client_ip,
-        email_name=env['EMAIL_NAME'],
-        email=env['EMAIL'],
-        request_id=request_id,
-        forwarded_url=forwarded_url,
-    ), 403)
+    return (
+        render_template(
+            "access-denied.html",
+            client_ip=client_ip,
+            email_name=env["EMAIL_NAME"],
+            email=env["EMAIL"],
+            request_id=request_id,
+            forwarded_url=forwarded_url,
+        ),
+        403,
+    )
 
 
-@app.route('/', methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'])
+@app.route("/", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"])
 def handle_request():
-    request_id = request.headers.get('X-B3-TraceId') or ''.join(choices(request_id_alphabet, k=8))
+    request_id = request.headers.get("X-B3-TraceId") or "".join(
+        choices(request_id_alphabet, k=8)
+    )
 
-    logger.info('[%s] Start', request_id)
+    logger.info("[%s] Start", request_id)
 
     # Must have X-CF-Forwarded-Url to match route
     try:
-        forwarded_url = request.headers['X-CF-Forwarded-Url']
+        forwarded_url = request.headers["X-CF-Forwarded-Url"]
     except KeyError:
-        logger.error('[%s] Missing X-CF-Forwarded-Url header', request_id)
-        return render_access_denied('Unknown', 'Unknown', request_id)
+        logger.error("[%s] Missing X-CF-Forwarded-Url header", request_id)
+        return render_access_denied("Unknown", "Unknown", request_id)
 
-    logger.info('[%s] Forwarded URL: %s', request_id, forwarded_url)
+    logger.info("[%s] Forwarded URL: %s", request_id, forwarded_url)
     parsed_url = urllib.parse.urlsplit(forwarded_url)
 
     # Find x-forwarded-for
     try:
-        x_forwarded_for = request.headers['X-Forwarded-For']
+        x_forwarded_for = request.headers["X-Forwarded-For"]
     except KeyError:
-        logger.error('[%s] X-Forwarded-For header is missing', request_id)
-        return render_access_denied('Unknown', forwarded_url, request_id)
+        logger.error("[%s] X-Forwarded-For header is missing", request_id)
+        return render_access_denied("Unknown", forwarded_url, request_id)
 
-    logger.debug('[%s] X-Forwarded-For: %s', request_id, x_forwarded_for)
+    logger.debug("[%s] X-Forwarded-For: %s", request_id, x_forwarded_for)
 
     def get_client_ip(route):
         try:
-            return x_forwarded_for.split(',')[int(route['IP_DETERMINED_BY_X_FORWARDED_FOR_INDEX'])].strip()
+            return x_forwarded_for.split(",")[
+                int(route["IP_DETERMINED_BY_X_FORWARDED_FOR_INDEX"])
+            ].strip()
         except IndexError:
-            logger.debug('[%s] Not enough addresses in x-forwarded-for %s', request_id, x_forwarded_for)
+            logger.debug(
+                "[%s] Not enough addresses in x-forwarded-for %s",
+                request_id,
+                x_forwarded_for,
+            )
 
-    routes = env['ROUTES']
+    routes = env["ROUTES"]
     hostname_ok = [
-        re.match(route['HOSTNAME_REGEX'], parsed_url.hostname)
-        for route in routes
+        re.match(route["HOSTNAME_REGEX"], parsed_url.hostname) for route in routes
     ]
-    client_ips = [
-        get_client_ip(route) for route in routes
-    ]
+    client_ips = [get_client_ip(route) for route in routes]
     ip_ok = [
-        any(client_ips[i] and ip_address(client_ips[i]) in ip_network(ip_range) for ip_range in route['IP_RANGES'])
+        any(
+            client_ips[i] and ip_address(client_ips[i]) in ip_network(ip_range)
+            for ip_range in route["IP_RANGES"]
+        )
         for i, route in enumerate(routes)
     ]
-    shared_secrets = [
-        route.get('SHARED_SECRET_HEADER', [])
-        for route in routes
-    ]
+    shared_secrets = [route.get("SHARED_SECRET_HEADER", []) for route in routes]
     shared_secret_ok = [
         [
             (
-                shared_secret['NAME'] in request.headers
-                and constant_time_is_equal(shared_secret['VALUE'].encode(), request.headers[shared_secret['NAME']].encode())
+                shared_secret["NAME"] in request.headers
+                and constant_time_is_equal(
+                    shared_secret["VALUE"].encode(),
+                    request.headers[shared_secret["NAME"]].encode(),
+                )
             )
             for shared_secret in shared_secrets[i]
         ]
@@ -110,15 +124,16 @@ def handle_request():
     # In general, any matching basic auth credentials are accepted. However,
     # on authentication paths, only those with that path are accepted, and
     # on failure, a 401 is returned to request the correct credentials
-    basic_auths = [
-        route.get('BASIC_AUTH', [])
-        for route in routes
-    ]
+    basic_auths = [route.get("BASIC_AUTH", []) for route in routes]
     basic_auths_ok = [
         [
-            request.authorization and
-            constant_time_is_equal(basic_auth['USERNAME'].encode(), request.authorization.username.encode()) and
-            constant_time_is_equal(basic_auth['PASSWORD'].encode(), request.authorization.password.encode())
+            request.authorization
+            and constant_time_is_equal(
+                basic_auth["USERNAME"].encode(), request.authorization.username.encode()
+            )
+            and constant_time_is_equal(
+                basic_auth["PASSWORD"].encode(), request.authorization.password.encode()
+            )
             for basic_auth in basic_auths[i]
         ]
         for i, _ in enumerate(routes)
@@ -127,41 +142,40 @@ def handle_request():
         [
             basic_auths_ok[i][j]
             for j, basic_auth in enumerate(basic_auths[i])
-            if parsed_url.path == basic_auth['AUTHENTICATE_PATH']
+            if parsed_url.path == basic_auth["AUTHENTICATE_PATH"]
         ]
         for i, _ in enumerate(routes)
     ]
-    any_on_auth_path_and_ok = any([
-        any(on_auth_path_and_ok[i])
-        for i, _ in enumerate(routes)
-    ])
+    any_on_auth_path_and_ok = any(
+        [any(on_auth_path_and_ok[i]) for i, _ in enumerate(routes)]
+    )
     should_request_auth = not any_on_auth_path_and_ok and any(
         (
-            hostname_ok[i] and
-            ip_ok[i] and
-            (not shared_secrets[i] or any(shared_secret_ok[i])) and
-            len(on_auth_path_and_ok[i]) and
-            all(not ok for ok in on_auth_path_and_ok[i])
+            hostname_ok[i]
+            and ip_ok[i]
+            and (not shared_secrets[i] or any(shared_secret_ok[i]))
+            and len(on_auth_path_and_ok[i])
+            and all(not ok for ok in on_auth_path_and_ok[i])
         )
         for i, _ in enumerate(routes)
     )
     should_respond_ok_to_auth_request = any(
         (
-            hostname_ok[i] and
-            ip_ok[i] and
-            (not shared_secrets[i] or any(shared_secret_ok[i])) and
-            len(on_auth_path_and_ok[i]) and
-            any(on_auth_path_and_ok[i])
+            hostname_ok[i]
+            and ip_ok[i]
+            and (not shared_secrets[i] or any(shared_secret_ok[i]))
+            and len(on_auth_path_and_ok[i])
+            and any(on_auth_path_and_ok[i])
         )
         for i, _ in enumerate(routes)
     )
 
     any_route_with_all_checks_passed = any(
         (
-            hostname_ok[i] and
-            ip_ok[i] and
-            (not shared_secrets[i] or any(shared_secret_ok[i])) and
-            (not basic_auths[i] or any(basic_auths_ok[i]))
+            hostname_ok[i]
+            and ip_ok[i]
+            and (not shared_secrets[i] or any(shared_secret_ok[i]))
+            and (not basic_auths[i] or any(basic_auths_ok[i]))
         )
         for i, _ in enumerate(routes)
     )
@@ -172,31 +186,38 @@ def handle_request():
     # host matches, then that will be the correct one. If 'Unknown' is then
     # shown to the user, it suggests something has been misconfigured
     client_ip = next(
-        (client_ips[i] for i, _ in enumerate(routes) if hostname_ok[i])
-    , 'Unknown')
+        (client_ips[i] for i, _ in enumerate(routes) if hostname_ok[i]), "Unknown"
+    )
 
-    headers_to_remove = tuple(set(
-        shared_secret['NAME'].lower()
-        for i, _ in enumerate(routes)
-        for shared_secret in shared_secrets[i]
-    )) + ('host', 'x-cf-forwarded-url', 'connection')
+    headers_to_remove = tuple(
+        set(
+            shared_secret["NAME"].lower()
+            for i, _ in enumerate(routes)
+            for shared_secret in shared_secrets[i]
+        )
+    ) + ("host", "x-cf-forwarded-url", "connection")
 
     if should_request_auth:
         return Response(
-            'Could not verify your access level for that URL.\n'
-            'You have to login with proper credentials', 401,
-            {'WWW-Authenticate': 'Basic realm="Login Required"'})
+            "Could not verify your access level for that URL.\n"
+            "You have to login with proper credentials",
+            401,
+            {"WWW-Authenticate": 'Basic realm="Login Required"'},
+        )
 
     if should_respond_ok_to_auth_request:
-        return 'ok'
+        return "ok"
 
     if not any_route_with_all_checks_passed:
         logger.warning(
-            '[%s] No matching route; host: %s client ip: %s',
-            request_id, parsed_url.hostname, client_ip)
+            "[%s] No matching route; host: %s client ip: %s",
+            request_id,
+            parsed_url.hostname,
+            client_ip,
+        )
         return render_access_denied(client_ip, forwarded_url, request_id)
 
-    logger.info('[%s] Making request to origin', request_id)
+    logger.info("[%s] Making request to origin", request_id)
 
     def downstream_data():
         while True:
@@ -209,31 +230,31 @@ def handle_request():
         request.method,
         forwarded_url,
         headers={
-            k: v for k, v in request.headers
-            if k.lower() not in headers_to_remove
+            k: v for k, v in request.headers if k.lower() not in headers_to_remove
         },
         preload_content=False,
         redirect=False,
         assert_same_host=False,
         body=downstream_data(),
     )
-    logger.info('[%s] Origin response status: %s', request_id, origin_response.status)
+    logger.info("[%s] Origin response status: %s", request_id, origin_response.status)
 
     def release_conn():
         origin_response.release_conn()
-        logger.info('[%s] End', request_id)
+        logger.info("[%s] End", request_id)
 
     downstream_response = Response(
         origin_response.stream(65536, decode_content=False),
         status=origin_response.status,
         headers=[
-            (k, v) for k, v in origin_response.headers.items()
-            if k.lower() != 'connection'
+            (k, v)
+            for k, v in origin_response.headers.items()
+            if k.lower() != "connection"
         ],
     )
     downstream_response.autocorrect_location_header = False
     downstream_response.call_on_close(release_conn)
 
-    logger.info('[%s] Starting response to client', request_id)
+    logger.info("[%s] Starting response to client", request_id)
 
     return downstream_response
