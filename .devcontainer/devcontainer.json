@@ -1,0 +1,85 @@
+{
+  //cSpell:disable
+  "name": "dit-cf-security",
+  "image": "python:3.11",
+  "runArgs": [
+    "--hostname",
+    "cfsecurity",
+    "--env-file",
+    "${localWorkspaceFolder}/.devcontainer/.env"
+  ],
+
+  "workspaceFolder": "/vscode/workspace",
+
+  "onCreateCommand": [
+    "/bin/bash",
+    "-c",
+    "source /vscode/workspace/.devcontainer/on-create.sh"
+  ],
+
+  "mounts": [
+    "source=${localWorkspaceFolder},target=/vscode/workspace,type=bind"
+  ],
+
+  "postAttachCommand": [
+    "/bin/bash",
+    "-c",
+    "source /vscode/workspace/.devcontainer/post-attach.sh"
+  ],
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "streetsidesoftware.code-spell-checker",
+        "esbenp.prettier-vscode",
+        "eamodio.gitlens",
+        "codezombiech.gitignore",
+        "fabiospampinato.vscode-diff",
+        "ms-python.python",
+        "ms-python.isort",
+        "ms-python.vscode-pylance",
+        "ms-python.pylint",
+        "DavidAnson.vscode-markdownlint",
+        "shd101wyy.markdown-preview-enhanced",
+        "ms-python.black-formatter"
+      ],
+
+      "settings": {
+        //excluded files from side bar
+        "files.exclude": {
+          "**/.git": true,
+          "**/.svn": true,
+          "**/.hg": true,
+          "**/CVS": true,
+          "**/.DS_Store": true,
+          "**/Thumbs.db": true,
+          "**/.coverage.*.*": true
+        },
+        //global settings for editor
+        "editor.defaultFormatter": "esbenp.prettier-vscode",
+        "editor.formatOnPaste": false,
+        "editor.formatOnSave": true,
+        "editor.tabCompletion": "on",
+        "files.trimTrailingWhitespace": true,
+
+        //code-spell-checker
+        "cSpell.language": "en-GB",
+        //python specific settings
+        "[python]": {
+          "editor.codeActionsOnSave": {
+            "source.organizeImports": true
+          },
+          "editor.defaultFormatter": "ms-python.black-formatter",
+          "editor.formatOnPaste": false
+        },
+        "isort.args": ["--profile", "black"],
+        "python.languageServer": "Pylance",
+        "python.terminal.activateEnvironment": false,
+
+        //python testing
+        "python.testing.unittestEnabled": true,
+        "python.testing.pytestEnabled": false
+      }
+    }
+  }
+}
