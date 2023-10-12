@@ -1,5 +1,6 @@
 ---
 applications:
+  - name: ip-filter-service
   - buildpacks:
     - https://github.com/cloudfoundry/python-buildpack.git
     stack: cflinuxfs4
